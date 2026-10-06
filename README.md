@@ -76,8 +76,13 @@ large historical snapshots or refresh a consumed certificate. Close/drain the ol
 admission first. See RECOVERY_CONTRACT.md for the mandatory root audit and exact
 record shape. Original recurring-identity conflict rules are unchanged.
 
-`build_adapter_release.py` regenerates synthetic examples, test results, manifest
-and a portable ZIP after the source/tests change. `distribution_check.py` scans
-explicit file lists/ZIPs, including nested archives. A private deny-term JSON file
-may be supplied with `--deny-json`; keep that file and private reports outside the
-repository. Pattern scans cannot identify every unknown secret.
+GitHub is the distribution source: clone this repository and pin the verified
+commit. Distribution ZIPs and Library ZIPs are unnecessary. After source/tests
+change, `build_adapter_release.py` refreshes only the synthetic examples, test
+results and manifest in this checkout; it does not create an archive or publish
+anything. `verify_release.py` validates the exact checked-out source directly.
+
+`distribution_check.py` scans explicit source file lists (and supports historical
+archives when needed). A private deny-term JSON file may be supplied with
+`--deny-json`; keep that file and private reports outside the repository. Pattern
+scans cannot identify every unknown secret.

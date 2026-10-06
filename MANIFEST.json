@@ -65,8 +65,8 @@
     },
     {
       "path": "build_adapter_release.py",
-      "bytes": 6994,
-      "sha256": "6643d92a5770c468710b4ae4695baacecfb07f14f47cc848a119d3f7e5713a3c"
+      "bytes": 6269,
+      "sha256": "945daa3189a69178e4800a3cf071fdaa7af974df7f6b2d75158a3a26c8b71829"
     },
     {
       "path": "TEST_RESULTS.txt",
@@ -80,8 +80,8 @@
     },
     {
       "path": "README.md",
-      "bytes": 5034,
-      "sha256": "14624b881b56c726b4e4789b42120d443fa81628cdd8698d74fcf54b0e3ac2fe"
+      "bytes": 5320,
+      "sha256": "a39c1585da8110dc5c18caef89b8763b1fdc7a49a0ac32ec6cf129206280a202"
     },
     {
       "path": "verify_release.py",

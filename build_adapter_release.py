@@ -1,10 +1,9 @@
-"""Offline synthetic tests/examples and reproducible portable adapter release."""
+"""Refresh synthetic tests/examples and the source-release manifest, offline."""
 import hashlib
 import json
 from pathlib import Path
 import sys
 import unittest
-import zipfile
 
 import production_adapter as adapter
 import planner
@@ -94,19 +93,9 @@ def main():
                 "files": [{"path": name, "bytes": (root / name).stat().st_size,
                            "sha256": hashlib.sha256((root / name).read_bytes()).hexdigest()} for name in names]}
     (root / "MANIFEST.json").write_text(json.dumps(manifest, indent=2) + "\n", encoding="utf-8", newline="\n")
-    archive_path = root.parent / ("calendar-sync-adapter-v" + adapter.ADAPTER_VERSION + ".zip")
-    with zipfile.ZipFile(archive_path, "w", compression=zipfile.ZIP_DEFLATED, compresslevel=9) as archive:
-        for name in sorted(names + ["MANIFEST.json"]):
-            info = zipfile.ZipInfo("calendar_sync_adapter/" + name, date_time=(2026, 1, 1, 0, 0, 0))
-            info.compress_type = zipfile.ZIP_DEFLATED
-            info.external_attr = 0o644 << 16
-            archive.writestr(info, (root / name).read_bytes())
-    with zipfile.ZipFile(archive_path) as archive:
-        assert archive.testzip() is None
-        for item in manifest["files"]:
-            assert hashlib.sha256(archive.read("calendar_sync_adapter/" + item["path"])).hexdigest() == item["sha256"]
     print(json.dumps({"tests_passed": result.testsRun, "adapter_sha256": manifest["files"][0]["sha256"],
-                      "release_path": archive_path.name, "release_sha256": hashlib.sha256(archive_path.read_bytes()).hexdigest(),
+                      "manifest_path": "MANIFEST.json", "source_files": len(names),
+                      "manifest_sha256": hashlib.sha256((root / "MANIFEST.json").read_bytes()).hexdigest(),
                       "pinned_planner_sha256": adapter.PINNED_PLANNER_SHA256}, indent=2))
 
 
