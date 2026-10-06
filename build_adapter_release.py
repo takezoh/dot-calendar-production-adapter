@@ -65,6 +65,9 @@ def main():
     datasets["recovery-refresh"] = refreshed_raw
     series_raw, series_normalized = fixtures.series_split_raw(13, bounded=True)
     datasets["series-split"] = series_raw
+    past_cancelled = fixtures.past_removal_raw()
+    datasets["past-cancelled"] = past_cancelled
+    datasets["past-deleted"] = fixtures.past_removal_raw("deleted")
     names = ["production_adapter.py", "test_production_adapter.py", "ADAPTER_CONTRACT.md", "planner.py",
              "test_planner.py", "MANAGED_COVERAGE.md", "PLANNER_CONTRACT.md", "RUNTIME_CONFIG.md", "config.example.json",
              "config.template.json", "distribution_check.py", "build_adapter_release.py", "TEST_RESULTS.txt",
@@ -80,6 +83,12 @@ def main():
     (root / filename).write_text(json.dumps({"action": action, "fresh": test_planner.claimed_fresh(action)},
         ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8", newline="\n")
     names.append(filename)
+    action = fixtures.writes(planner.plan(adapter.adapt(past_cancelled)))[0]
+    for mode in ("preflight", "revalidate"):
+        filename = "examples/past-cancelled-" + mode + ".input.json"
+        (root / filename).write_text(json.dumps({"action": action, "fresh": test_planner.fresh_for(action)},
+            ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8", newline="\n")
+        names.append(filename)
     filename = "examples/series-revalidate.input.json"
     proposal = planner.plan(series_normalized)["series_rebinds"][0]
     (root / filename).write_text(json.dumps({"proposal": proposal, "fresh": test_planner.series_fresh(series_normalized)},

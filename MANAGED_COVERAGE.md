@@ -1,8 +1,8 @@
-# Managed creation coverage: planner 1.3.2 / adapter 1.2.2
+# Managed creation coverage: planner 1.4.1 / adapter 1.3.1
 
 This adds an explicitly narrower, truthful alternative to a universal marker
 lookup. Planner schema 3 and raw adapter schema 2 require RuntimeConfig and support an OPTIONAL
-`managed_context` top-level field and a discriminated marker-search scope. Universal coverage and registered reconciliation policies are unchanged; older input schemas require explicit metadata migration. Pin the new
+`managed_context` top-level field and a discriminated marker-search scope. Universal coverage remains available; registered reconciliation follows PLANNER_CONTRACT.md, including definite cancellation/deletion of ended mirrors. Older input schemas require explicit metadata migration. Pin the new
 source bytes: earlier releases do not implement this extension.
 
 The production Google Calendar `q` search cannot certify universal marker
@@ -29,7 +29,8 @@ For a new busy source occurrence, creation is proposed only when:
    mirrors block managed creates. Retired IDs need explicit known-ID terminal
    verification. All unresolved operations conservatively block managed creates,
    even when they concern a different marker. Existing registered reconciliation
-   still follows the original rules and verified-state requirement.
+   still requires verified state. Confirmed source-removal cleanup also blocks
+   pending/uncertain operations for its own marker.
 6. On the destination calendar, run BOTH namespace and key queries with no time
    bounds, exhaust every returned page, and read every candidate in detail. The
    planner checks whole ASCII-normalized descriptions, not substring ownership.

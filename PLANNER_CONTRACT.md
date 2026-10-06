@@ -1,4 +1,4 @@
-# Portable calendar mirror planner 1.4.0 - JSON contract v3
+# Portable calendar mirror planner 1.4.1 - JSON contract v3
 
 `planner.py` is a self-contained Python 3.10+ standard-library program. It accepts
 normalized JSON and produces a deterministic safe plan. It has no network calls,
@@ -479,11 +479,29 @@ between plan and reread, the strict fingerprint guard still requires replanning.
 
 Deletes retain the original safeguards: persisted owned mapping, direct known-ID
 source verification, unique observed marker and unchanged protected destination.
-Cancellation, explicit deletion, decline, free status, or verified movement beyond
-the future window can release a future mirror. A verified move from previously
-future/ongoing to before run start can also release a still-future mirror. Already
-ended-past mirrors are retained even after source cancellation/deletion; naturally
-ended sources do not cause bulk cleanup. Missing search results never imply delete.
+Definite cancellation or explicit deletion releases the unchanged registered mirror
+even when it has ended. Accepted source evidence is a full direct-ID `found` event
+with status `cancelled`, or a direct-ID `cancelled`/`deleted` terminal response with
+the existing verified-known-ID proof. These produce the existing guarded `delete`
+actions with reasons `known_source_cancelled` or `known_source_deleted`; no new
+input allowlist, cleanup flag or schema migration is required. The final guard
+rechecks definitive removal evidence as well as all existing fingerprints.
+
+Source removal is checked before age-based mirror retention. An ended mirror whose
+current time differs from its verified baseline conflicts with reason
+`ended_past_destination_manual_time_edit`. Existing observable non-time/manual
+marker conflicts remain. A supplied managed ledger with a prepared, attempt-started
+or uncertain operation for this marker blocks removal until reconciled. Historical
+attempts already resolved by a validated zero-call recovery remain preserved and
+do not block a later cancellation of the successfully created mirror.
+
+Decline, free status or verified movement beyond the future window can release a
+future mirror. A verified move from previously future/ongoing to before run start
+can also release a still-future mirror. These cases do not authorize purging already
+ended mirrors. Naturally ended active sources retain their history. Merely being
+old, missing from the window, returning ambiguous `not_found`/404, API errors or
+unread details/pages never proves cancellation or deletion. Each candidate needs
+its own exact-ID read and unchanged owned destination; this is not a blanket purge.
 
 Journal intent durably before write. After write read back, verify the desired
 observable fields/marker/ID and source identity, then persist verified snapshots
@@ -493,6 +511,13 @@ using journaled ID, marker lookup and known-ID reads. Multiple matches conflict.
 An empty read after an ambiguous create does not by itself prove failure. Never
 blindly retry. After verified deletion reconcile the journal/registry rather than
 recreating from stale listing data.
+
+The offline guard is stateless: replay against a new state generation, changed
+source, or deleted destination fails, but identical stale JSON cannot prove that no
+call occurred. The external executor must serialize writes, journal each attempt,
+reread the current state/ledger and known IDs, and refuse resume/retry after uncertain
+outcomes. Snapshot rereads still cannot prevent a manual edit after the check when
+conditional provider writes are unavailable.
 
 Production adapter validation, real-data dry-run, persistence and verified cutover
 remain with the parent. This package changes no real calendars, schedules,

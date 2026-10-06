@@ -1,6 +1,6 @@
 # Reviewed recurring-series transition: state-only contract v1
 
-Planner 1.4.0 and adapter 1.3.0 accept an optional `series_transitions` array in
+Planner 1.4.1 and adapter 1.3.1 accept an optional `series_transitions` array in
 their existing normalized schema-3/raw schema-2 envelopes. With no certificate,
 `source_series_identity_changed` remains a conflict. Supplying a certificate
 selects a dedicated review mode: **no Calendar create, update or delete is

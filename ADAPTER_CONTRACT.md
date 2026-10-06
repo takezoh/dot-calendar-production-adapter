@@ -1,8 +1,8 @@
-# Portable calendar projection adapter 1.3.0
+# Portable calendar projection adapter 1.3.1
 
 This is a reusable, standard-library Python adapter for the existing direct Google
 Calendar plugin. It converts certified raw connector observations into the exact
-schema-3 input required by **planner 1.4.0**. It reads JSON files or
+schema-3 input required by **planner 1.4.1**. It reads JSON files or
 stdin and writes JSON files or stdout. It does not authenticate, call the network,
 read calendars, mutate calendars, modify registry state, run a scheduler, read the
 system clock, or create a daemon.
@@ -16,6 +16,13 @@ migration and serialized durable creation-attempt contracts. The companion
 The authenticated caller must gather the observations and truthful certificates.
 The adapter validates them offline. No runtime dependency on the development
 computer or its credentials exists.
+
+Planner 1.4.1 also handles a definitely cancelled/deleted source whose owned mirror
+has already ended. Continue supplying registered source/destination detail reads
+even when neither appears in the current window. The existing raw `found` cancelled
+event or terminal result with verified-known-ID proof is sufficient; no new cleanup
+field is accepted. An ambiguous missing result or incomplete response is never
+converted into cancellation/deletion evidence. Raw/state/ledger schemas are unchanged.
 
 ## Portable execution
 

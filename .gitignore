@@ -55,3 +55,11 @@
 !/examples/series-split.normalized.json
 !/examples/series-split.plan.json
 !/examples/series-revalidate.input.json
+!/examples/past-cancelled.raw.json
+!/examples/past-cancelled.normalized.json
+!/examples/past-cancelled.plan.json
+!/examples/past-deleted.raw.json
+!/examples/past-deleted.normalized.json
+!/examples/past-deleted.plan.json
+!/examples/past-cancelled-preflight.input.json
+!/examples/past-cancelled-revalidate.input.json

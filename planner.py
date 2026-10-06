@@ -17,7 +17,7 @@ import sys
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 SCHEMA_VERSION = 3
-RELEASE = "1.4.0"
+RELEASE = "1.4.1"
 RECOVERY_ITEM_SCOPE = "recovery_item_v1"
 UNIVERSAL_SCOPE = "exact_marker_all_destinations"
 MANAGED_SCOPE = "managed_state_window_and_indexed_search"
@@ -566,6 +566,21 @@ def eligibility(event, run_start, window_end):
     if begin >= window_end:
         return "outside_future_window"
     return "busy_in_window"
+
+
+def definitive_source_removal(snapshot):
+    """A direct known-ID cancellation/deletion, never absence or event age."""
+    if not isinstance(snapshot, dict) or set(snapshot) != {"calendar_id", "event_id", "outcome", "event", "evidence"}:
+        return None
+    event, proof, outcome = snapshot["event"], snapshot["evidence"], snapshot["outcome"]
+    if outcome == "found":
+        if isinstance(event, dict) and event.get("id") == snapshot["event_id"] and event.get("status") == "cancelled" and proof is None:
+            return "cancelled"
+    elif outcome in {"cancelled", "deleted"} and event is None:
+        if (isinstance(proof, dict) and set(proof) == {"kind", "verified_known_id", "proof"}
+                and proof["kind"] == outcome and proof["verified_known_id"] is True and nonempty(proof["proof"])):
+            return outcome
+    return None
 
 
 def ref(calendar_id, event_id):
@@ -1271,6 +1286,21 @@ class Planner:
             else:
                 emit("update", "source_or_mirror_time_changed", desired(event, marker))
             return
+        # A known-ID removal is distinct from age-based retention. This applies
+        # to each registered occurrence independently, including ended mirrors.
+        if reason in {"cancelled", "deleted"}:
+            resolved = validate_recoveries(self.config, self.managed, self.issued)[1] if self.managed is not None else set()
+            if definitive_source_removal(source_snapshot) != reason:
+                emit("conflict", "source_removal_requires_definite_known_id_verification")
+            elif self.managed is not None and any(op["marker"] == marker and op["status"] not in {"committed", "verified_no_write"}
+                                                  and op["operation_id"] not in resolved
+                                                  for op in self.managed["ledger"]["operations"]):
+                emit("conflict", "source_removal_has_pending_or_uncertain_operation")
+            elif bounds(target)[1] <= self.start and timing(target) != timing(mapping["verified_destination"]):
+                emit("conflict", "ended_past_destination_manual_time_edit")
+            else:
+                emit("delete", "known_source_" + reason)
+            return
         if bounds(target)[1] <= self.start:
             emit("noop", "ended_past_mirror_retained")
         elif reason == "ended_past":
@@ -1279,7 +1309,7 @@ class Planner:
                 emit("delete", "known_source_moved_before_window")
             else:
                 emit("noop", "ended_past_source_retained_no_bulk_cleanup")
-        elif reason in {"cancelled", "deleted", "self_declined", "free", "outside_future_window"}:
+        elif reason in {"self_declined", "free", "outside_future_window"}:
             # A mapping always requires its direct known-ID source detail above.
             emit("delete", "known_source_" + reason)
         else:
@@ -1501,6 +1531,9 @@ def _revalidate_action(action, fresh, preflight=False):
             require(target is not None and canonical_mirror(target, action["marker"], fresh["connector_capabilities"]["field_profile"])
                     and len(inventory["matching_events"]) == 1
                     and inventory["matching_events"][0]["id"] == target["id"], "destination_ownership_or_protected_fields_changed")
+            if action["op"] == "delete" and action["reason"] in {"known_source_cancelled", "known_source_deleted"}:
+                require(definitive_source_removal(fresh["source"]) == action["reason"][len("known_source_"):],
+                        "fresh_source_removal_not_definite")
         etag = None
         if action["op"] != "create" and fresh["connector_capabilities"]["conditional_writes"]:
             etag = fresh["destination"]["event"]["etag"]

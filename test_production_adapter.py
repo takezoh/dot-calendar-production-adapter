@@ -878,5 +878,50 @@ class SeriesTransitionAdapterTests(unittest.TestCase):
             a.adapt(raw)
 
 
+def past_removal_raw(outcome="found_cancelled"):
+    import test_planner as fixtures
+    source = detail("synthetic-ended-source", "2026-10-06T10:00:00Z", "2026-10-06T11:00:00Z")
+    destination = target(source, event_id="synthetic-ended-mirror")
+    saved = mapping(source, destination)
+    if outcome == "found_cancelled":
+        source["status"] = "cancelled"
+        observation = found(source)
+    else:
+        observation = terminal(source["id"], outcome)
+    raw = raw_input([], [], [saved], extra_a=[observation], extra_b=[found(destination)])
+    raw["managed_context"] = fixtures.serialized(fixtures.managed(a.adapt(raw)))["managed_context"]
+    return raw
+
+
+class EndedCancellationAdapterTests(unittest.TestCase):
+    def test_direct_found_cancellation_and_terminal_deletion_cleanup_ended_registered_mirror(self):
+        import test_planner as fixtures
+        for outcome in ("found_cancelled", "cancelled", "deleted"):
+            raw = past_removal_raw(outcome)
+            original = deepcopy(raw)
+            result = p.plan(a.adapt(raw))
+            self.assertEqual(result["counts"], {"create": 0, "update": 0, "delete": 1, "noop": 0, "conflict": 0})
+            action = writes(result)[0]
+            self.assertTrue(p.revalidate_action(action, fixtures.fresh_for(action))["allowed"])
+            self.assertEqual(raw, original)
+
+    def test_direct_api_error_ambiguous_missing_and_unread_response_never_cleanup(self):
+        for outcome in ("error", "not_found"):
+            self.assertEqual(writes(p.plan(a.adapt(past_removal_raw(outcome)))), [])
+        raw = past_removal_raw()
+        raw["calendars"][0]["detail_batches"][0]["responses"] = []
+        with self.assertRaises(a.AdapterError):
+            a.adapt(raw)
+
+    def test_direct_manual_mirror_edits_preserved_after_source_cancellation(self):
+        for change in ("summary", "start"):
+            raw = past_removal_raw()
+            destination = raw["calendars"][1]["detail_batches"][0]["responses"][0]["event"]
+            destination[change] = "manual" if change == "summary" else "2026-10-06T09:00:00Z"
+            result = p.plan(a.adapt(raw))
+            self.assertEqual(writes(result), [])
+            self.assertEqual(result["counts"]["conflict"], 1)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

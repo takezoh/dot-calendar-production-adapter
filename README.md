@@ -1,6 +1,6 @@
 # Portable calendar synchronization planner and adapter
 
-Adapter **1.3.0** pins planner **1.4.0**. Python 3.10+ standard library, with IANA
+Adapter **1.3.1** pins planner **1.4.1**. Python 3.10+ standard library, with IANA
 timezone data available to `zoneinfo` for all-day events and series review. Linux normally supplies
 this data; other runtimes may provide it through `PYTHONTZPATH`. Missing timezone
 data fails closed. No credentials, authentication implementation, network client,
@@ -25,6 +25,8 @@ python3 planner.py --revalidate examples/recovery-revalidate.input.json
 python3 planner.py --preflight examples/recovery-refresh-preflight.input.json
 python3 planner.py --revalidate examples/recovery-refresh-revalidate.input.json
 python3 planner.py --revalidate-series examples/series-revalidate.input.json
+python3 planner.py --preflight examples/past-cancelled-preflight.input.json
+python3 planner.py --revalidate examples/past-cancelled-revalidate.input.json
 ```
 
 `verify_release.py` verifies every manifest hash and the pinned planner, runs the
@@ -41,6 +43,23 @@ exits 0 only with `state_write_allowed:true`; it always prohibits Calendar calls
 required JSON result before proceeding.** Neither a ready plan nor successful
 preflight permits a Calendar call. Bootstrap and conflicts require their documented
 resolution. Replan after each durable state/ledger change.
+
+Confirmed cancellation or deletion of a known source now releases its unchanged
+registered mirror even after the mirror ends. Each source must be re-read by exact
+ID; age, a missing window result, an ambiguous 404 or an API error is never deletion
+evidence. Ordinary past history remains. Manual non-time edits and manual changes
+to an ended mirror's time remain conflicts. No per-marker cleanup approval field
+or new input schema is required.
+
+Upgrade the adapter and its pinned planner together. Raw schema 2, planner schema
+3, RuntimeConfig 1 and ledger 2 are unchanged; preserve existing config, mappings,
+raw occurrence identities and all ledger history. Pause/drain the old executor,
+load the verified commit in cloud execution, reread both complete calendars and
+all registered IDs, then replan and use the existing final write guard. This
+repository does not perform that cutover. After confirmed deletion, verify the
+destination terminal state, retire its mapping/issued entry while retaining its
+known ID and operation history, and advance persisted generations. Unknown outcomes
+hold for read-based reconciliation; never blindly retry a delete.
 
 ## Contracts
 

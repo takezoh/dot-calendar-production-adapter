@@ -581,12 +581,13 @@ class PlanningTests(unittest.TestCase):
         self.assertEqual(action["op"], "delete")
         self.assertEqual(action["reason"], "known_source_outside_future_window")
 
-    def test_ended_past_mirrors_never_bulk_deleted_even_after_cancellation(self):
+    def test_definite_cancellation_releases_ended_mirror_with_unchanged_owned_snapshot(self):
         source, target, mapping = paired(event(begin="2026-10-01T18:00:00+09:00", end="2026-10-01T19:00:00+09:00"))
         data = batch([], [], [mapping], responses=[terminal(A, source["id"], "cancelled"), found(B, target)])
         result = p.plan(data)
-        self.assertEqual(writes(result), [])
-        self.assert_reason(result, "ended_past_mirror_retained")
+        self.assertEqual(len(writes(result)), 1)
+        self.assertEqual(writes(result)[0]["op"], "delete")
+        self.assert_reason(result, "known_source_cancelled")
 
     def test_source_moved_to_past_releases_future_mirror_after_known_id_verification(self):
         source, target, mapping = paired()
@@ -2842,6 +2843,234 @@ class SeriesTransitionTests(unittest.TestCase):
         with patch("sys.stdin", io.StringIO("bad-json")), patch("sys.stdout", output):
             self.assertEqual(p.main(["--revalidate-series"]), 2)
         self.assertFalse(json.loads(output.getvalue())["state_write_allowed"])
+
+
+def past_removal_batch(outcome="cancelled", calendar=A):
+    source = event("synthetic-ended-source", "2026-10-06T10:00:00Z", "2026-10-06T11:00:00Z")
+    destination_calendar = B if calendar == A else A
+    target = mirror(source, calendar, "synthetic-ended-mirror")
+    mapping = registry(source, target, calendar)
+    if outcome == "found_cancelled":
+        source["status"] = "cancelled"
+        observation = found(calendar, source)
+    elif outcome == "active":
+        observation = found(calendar, source)
+    else:
+        observation = terminal(calendar, source["id"], outcome)
+    return serialized(managed(projection(batch([], [], [mapping], responses=[observation, found(destination_calendar, target)]))))
+
+
+class EndedCancellationTests(unittest.TestCase):
+    def test_definite_found_cancellation_and_terminal_removals_release_ended_mirrors_both_directions(self):
+        for calendar in (A, B):
+            for outcome in ("found_cancelled", "cancelled", "deleted"):
+                data = past_removal_batch(outcome, calendar)
+                original = deepcopy(data)
+                result = p.plan(data)
+                self.assertEqual(result["counts"], {"create": 0, "update": 0, "delete": 1, "noop": 0, "conflict": 0}, result)
+                action = writes(result)[0]
+                self.assertEqual(action["reason"], "known_source_" + ("deleted" if outcome == "deleted" else "cancelled"))
+                self.assertEqual(action["destination"]["event_id"], "synthetic-ended-mirror")
+                self.assertNotEqual(action["destination"]["calendar_id"], calendar)
+                self.assertIsNone(action["desired"])
+                self.assertTrue(p.preflight_action(action, fresh_for(action))["ready_to_prepare"])
+                self.assertTrue(p.revalidate_action(action, fresh_for(action))["allowed"])
+                self.assertEqual(data, original)
+
+    def test_normal_past_history_is_retained_next_to_one_definite_cancellation(self):
+        data = past_removal_batch()
+        active = event("synthetic-history-source", "2026-09-01T10:00:00Z", "2026-09-01T11:00:00Z")
+        target = mirror(active, A, "synthetic-history-mirror")
+        extra = projection(batch([], [], [registry(active, target)], responses=[found(A, active), found(B, target)]))
+        data["state"]["mappings"].extend(extra["state"]["mappings"])
+        for field in ("requested", "responses"):
+            data["details"][field].extend(extra["details"][field])
+        data = serialized(managed(data))
+        result = p.plan(data)
+        self.assertEqual(result["counts"], {"create": 0, "update": 0, "delete": 1, "noop": 1, "conflict": 0})
+        self.assertIn("ended_past_mirror_retained", [a["reason"] for a in result["actions"]])
+        self.assertEqual(writes(result)[0]["destination"]["event_id"], "synthetic-ended-mirror")
+
+    def test_age_free_decline_or_active_outside_window_never_substitutes_for_cancellation(self):
+        for change in ("active", "free", "declined", "moved_outside"):
+            data = past_removal_batch("active")
+            source = data["details"]["responses"][0]["event"]
+            if change == "free":
+                source["fields"]["transparency"] = "transparent"
+            elif change == "declined":
+                with_response(source, "declined")
+            elif change == "moved_outside":
+                source["start"]["dateTime"] = "2027-06-01T10:00:00Z"
+                source["end"]["dateTime"] = "2027-06-01T11:00:00Z"
+            result = p.plan(data)
+            self.assertEqual(writes(result), [], result)
+            self.assertEqual(result["actions"][0]["reason"], "ended_past_mirror_retained")
+
+    def test_missing_error_omitted_detail_and_unread_pages_never_release_past_mirror(self):
+        for change in ("not_found", "error", "missing_detail", "partial_detail", "unread_pages"):
+            data = past_removal_batch(change if change in {"not_found", "error"} else "cancelled")
+            if change == "missing_detail":
+                data["details"]["responses"].pop(0)
+            elif change == "partial_detail":
+                data["details"]["complete"] = False
+            elif change == "unread_pages":
+                data["calendars"][0]["listing"]["next_page_token"] = "unread"
+            self.assertEqual(writes(p.plan(data)), [], change)
+
+    def test_terminal_removal_needs_known_id_proof_even_for_past_cleanup(self):
+        for change in ("missing", "unverified", "wrong_kind", "empty_proof"):
+            data = past_removal_batch("deleted")
+            proof = data["details"]["responses"][0]["evidence"]
+            if change == "missing":
+                data["details"]["responses"][0]["evidence"] = None
+            elif change == "unverified":
+                proof["verified_known_id"] = False
+            elif change == "wrong_kind":
+                proof["kind"] = "cancelled"
+            else:
+                proof["proof"] = ""
+            self.assertEqual(writes(p.plan(data)), [], change)
+
+    def test_manual_destination_fields_and_past_time_edits_still_conflict(self):
+        for change in ("summary", "description", "location", "visibility", "transparency", "extra", "time"):
+            data = past_removal_batch()
+            target = data["details"]["responses"][1]["event"]
+            if change == "time":
+                target["start"]["dateTime"] = "2026-10-06T09:00:00Z"
+            elif change == "extra":
+                target["fields"]["other"]["observed"]["color_id"] = "manual"
+            else:
+                target["fields"][change] = "manual"
+            result = p.plan(data)
+            self.assertEqual(writes(result), [], change)
+            self.assertEqual(result["counts"]["conflict"], 1)
+            if change == "time":
+                self.assertEqual(result["actions"][0]["reason"], "ended_past_destination_manual_time_edit")
+
+    def test_uncertain_state_ledger_config_and_pending_target_operations_block_cleanup(self):
+        for change in ("state", "ledger", "config", "prepared", "attempt_started", "uncertain"):
+            data = past_removal_batch()
+            if change == "state":
+                data["state"]["status"] = "uncertain"
+            elif change == "ledger":
+                data["managed_context"]["ledger"]["status"] = "uncertain"
+            elif change == "config":
+                data["config"]["namespace"] = "f" * 32
+            else:
+                data["managed_context"]["ledger"]["operations"].append({"operation_id": "synthetic-pending-target",
+                    "marker": data["state"]["mappings"][0]["marker"], "status": change, "action_id": "synthetic-prior-action"})
+            self.assertEqual(writes(p.plan(data)), [], change)
+
+    def test_duplicate_and_suspect_owned_markers_block_cancellation_cleanup(self):
+        for suspect in (False, True):
+            data = past_removal_batch()
+            extra = deepcopy(data["details"]["responses"][1]["event"])
+            extra["id"] = "synthetic-duplicate"
+            if suspect:
+                extra["fields"]["description"] += " manual text"
+            data["details"]["requested"].append(p.ref(B, extra["id"]))
+            data["details"]["responses"].append(found(B, extra))
+            self.assertEqual(writes(p.plan(data)), [])
+
+    def test_resolved_zero_call_recovery_history_does_not_leave_later_cancelled_mirror_orphaned(self):
+        data = recovery_batch()
+        create = writes(p.plan(data))[0]
+        data["managed_context"] = claimed_fresh(create)["managed_context"]
+        source = deepcopy(data["details"]["responses"][0]["event"])
+        target = projection(batch([], [mirror(event())]))["calendars"][1]["listing"]["events"][0]
+        data["state"]["mappings"] = [registry(source, target)]
+        data["state"]["generation"] += "-verified-created"
+        source["status"] = "cancelled"
+        data["details"] = {"complete": True, "requested": [p.ref(A, source["id"]), p.ref(B, target["id"])],
+                           "responses": [found(A, source), found(B, target)]}
+        data["run_started_at"] = "2026-10-08T12:00:00Z"
+        for calendar in data["calendars"]:
+            calendar["listing"].update(events=[], time_min=data["run_started_at"],
+                time_max=(p.instant(data["run_started_at"]) + timedelta(days=90)).isoformat())
+        ledger = data["managed_context"]["ledger"]
+        ledger["issued"][0].update(destination_ids=[target["id"]], disposition="mapped")
+        ledger["operations"][-1]["status"] = "committed"
+        ledger["generation"] += "-verified-created"
+        original_history = deepcopy(ledger)
+        result = p.plan(data)
+        self.assertEqual(result["counts"]["delete"], 1, result)
+        self.assertEqual(ledger, original_history)
+        self.assertEqual(ledger["operations"][0]["status"], "attempt_started")
+        self.assertIsNotNone(ledger["recoveries"][0]["consumed_by_operation_id"])
+
+    def test_changed_recurring_identity_still_blocks_found_cancelled_source(self):
+        source = recurring("synthetic-past-occurrence", "2026-10-01T18:00:00+09:00")
+        source["start"]["dateTime"], source["end"]["dateTime"] = "2026-10-02T10:00:00Z", "2026-10-02T11:00:00Z"
+        source, target, mapping = paired(source)
+        for change in ("original", "series"):
+            current = deepcopy(source)
+            current["status"] = "cancelled"
+            current["original_start_time" if change == "original" else "recurring_event_id"] = (
+                "2026-10-08T18:00:00+09:00" if change == "original" else "another-series")
+            self.assertEqual(writes(p.plan(batch([], [], [mapping], responses=[found(A, current), found(B, target)]))), [])
+
+    def test_all_day_past_and_exact_run_end_boundary_support_definite_removal(self):
+        for source in (all_day(first="2026-10-01", last="2026-10-02"),
+                       event(begin="2026-10-06T11:00:00Z", end=RUN)):
+            source, target, mapping = paired(source)
+            data = batch([], [], [mapping], responses=[terminal(A, source["id"], "deleted"), found(B, target)])
+            action = writes(p.plan(data))[0]
+            self.assertEqual(action["op"], "delete")
+            self.assertTrue(p.revalidate_action(action, fresh_for(action))["allowed"])
+
+    def test_fresh_guard_rejects_source_destination_inventory_config_state_and_read_failures(self):
+        action = writes(p.plan(past_removal_batch("found_cancelled")))[0]
+        for change in ("active", "missing", "error", "target_marker", "target_time", "inventory", "config", "state", "partial"):
+            fresh = fresh_for(action)
+            if change == "active":
+                fresh["source"]["event"]["status"] = "confirmed"
+            elif change in {"missing", "error"}:
+                fresh["source"] = terminal(A, action["source"]["event_id"], "not_found" if change == "missing" else "error")
+            elif change == "target_marker":
+                fresh["destination"]["event"]["fields"]["description"] += " manual"
+            elif change == "target_time":
+                fresh["destination"]["event"]["start"]["dateTime"] = "2026-10-06T09:00:00Z"
+            elif change == "inventory":
+                fresh["marker_inventory"]["matching_events"].append(deepcopy(fresh["destination"]["event"]))
+            elif change == "config":
+                fresh["config"]["namespace"] = "f" * 32
+            elif change == "state":
+                fresh["state_generation"] += "-new"
+            else:
+                fresh["reread_certificate"]["source_by_id"] = False
+            self.assertFalse(p.preflight_action(action, fresh)["ready_to_prepare"], change)
+            self.assertFalse(p.revalidate_action(action, fresh)["allowed"], change)
+
+    def test_guard_rechecks_terminal_proof_even_if_action_hashes_are_recomputed(self):
+        action = writes(p.plan(past_removal_batch("deleted")))[0]
+        action["source"]["evidence"]["verified_known_id"] = False
+        action["expected"]["source"] = deepcopy(action["source"])
+        action["expected"]["fingerprints"]["source"] = p.digest(action["source"])
+        action["id"] = p.digest({key: value for key, value in action.items() if key != "id"})
+        checked = p.revalidate_action(action, fresh_for(action))
+        self.assertFalse(checked["allowed"])
+        self.assertEqual(checked["reason"], "fresh_source_removal_not_definite")
+
+    def test_verified_delete_and_retired_state_prevent_replay_or_recreation(self):
+        data = past_removal_batch()
+        action = writes(p.plan(data))[0]
+        terminal_target = terminal(B, action["destination"]["event_id"], "deleted")
+        fresh = fresh_for(action)
+        fresh["destination"] = deepcopy(terminal_target)
+        self.assertFalse(p.revalidate_action(action, fresh)["allowed"])
+        data["details"]["responses"][1] = terminal_target
+        self.assertEqual(writes(p.plan(data)), [])
+        data["state"]["mappings"] = []
+        data["state"]["generation"] += "-verified-removal"
+        ledger = data["managed_context"]["ledger"]
+        ledger["issued"][0]["disposition"] = "retired"
+        ledger["generation"] += "-verified-removal"
+        ledger["operations"].append({"operation_id": "synthetic-verified-delete", "marker": action["marker"],
+            "status": "committed", "action_id": action["id"]})
+        self.assertEqual(writes(p.plan(data)), [])
+        fresh = fresh_for(action)
+        fresh["state_generation"] = data["state"]["generation"]
+        self.assertFalse(p.revalidate_action(action, fresh)["allowed"])
 
 
 if __name__ == "__main__":
