@@ -1,0 +1,167 @@
+{
+  "calendars": [
+    {
+      "id": "calendar-alpha@example.invalid",
+      "listing": {
+        "complete": true,
+        "events": [
+          {
+            "all_day_bounds": null,
+            "end": {
+              "dateTime": "2026-10-07T19:00:00+09:00"
+            },
+            "etag": null,
+            "fields": {
+              "attendees": [],
+              "conferenceData": {
+                "unobserved": true
+              },
+              "description": "",
+              "eventType": "default",
+              "hangout_link": null,
+              "location": null,
+              "other": {
+                "observed": {},
+                "unobserved_provider_fields": true
+              },
+              "recurrence": [],
+              "reminders": {
+                "overrides": [],
+                "useDefault": true
+              },
+              "summary": "Synthetic event",
+              "transparency": null,
+              "visibility": "default"
+            },
+            "fields_verified": true,
+            "id": "demo-source",
+            "original_start_time": "2026-10-07T18:00:00+09:00",
+            "recurring_event_id": "demo-series",
+            "self_response": "none",
+            "start": {
+              "dateTime": "2026-10-07T18:00:00+09:00"
+            },
+            "status": "confirmed"
+          }
+        ],
+        "expanded": true,
+        "includes_ongoing": true,
+        "next_page_token": null,
+        "time_max": "2027-01-04T12:00:00+00:00",
+        "time_min": "2026-10-06T12:00:00Z"
+      },
+      "marker_searches": []
+    },
+    {
+      "id": "calendar-beta@example.invalid",
+      "listing": {
+        "complete": true,
+        "events": [],
+        "expanded": true,
+        "includes_ongoing": true,
+        "next_page_token": null,
+        "time_max": "2027-01-04T12:00:00+00:00",
+        "time_min": "2026-10-06T12:00:00Z"
+      },
+      "marker_searches": [
+        {
+          "complete": true,
+          "events": [],
+          "marker": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:7d92c4f13339a6faa68a9bbdf3baeef7de7ee6fc36f67f977f4f295735c28243]",
+          "next_page_token": null,
+          "scope": "exact_marker_all_destinations"
+        }
+      ]
+    }
+  ],
+  "config": {
+    "calendars": [
+      {
+        "calendar_id": "calendar-alpha@example.invalid",
+        "self_identities": [
+          "calendar-alpha@example.invalid"
+        ],
+        "self_identities_verified": true
+      },
+      {
+        "calendar_id": "calendar-beta@example.invalid",
+        "self_identities": [
+          "calendar-beta@example.invalid"
+        ],
+        "self_identities_verified": true
+      }
+    ],
+    "namespace": "0123456789abcdef0123456789abcdef",
+    "version": 1
+  },
+  "connector_capabilities": {
+    "concurrency_mode": "snapshot_reread",
+    "conditional_writes": false,
+    "field_profile": "google_calendar_projection",
+    "provider_etag": false
+  },
+  "details": {
+    "complete": true,
+    "requested": [
+      {
+        "calendar_id": "calendar-alpha@example.invalid",
+        "event_id": "demo-source"
+      }
+    ],
+    "responses": [
+      {
+        "calendar_id": "calendar-alpha@example.invalid",
+        "event": {
+          "all_day_bounds": null,
+          "end": {
+            "dateTime": "2026-10-07T19:00:00+09:00"
+          },
+          "etag": null,
+          "fields": {
+            "attendees": [],
+            "conferenceData": {
+              "unobserved": true
+            },
+            "description": "",
+            "eventType": "default",
+            "hangout_link": null,
+            "location": null,
+            "other": {
+              "observed": {},
+              "unobserved_provider_fields": true
+            },
+            "recurrence": [],
+            "reminders": {
+              "overrides": [],
+              "useDefault": true
+            },
+            "summary": "Synthetic event",
+            "transparency": null,
+            "visibility": "default"
+          },
+          "fields_verified": true,
+          "id": "demo-source",
+          "original_start_time": "2026-10-07T18:00:00+09:00",
+          "recurring_event_id": "demo-series",
+          "self_response": "none",
+          "start": {
+            "dateTime": "2026-10-07T18:00:00+09:00"
+          },
+          "status": "confirmed"
+        },
+        "event_id": "demo-source",
+        "evidence": null,
+        "outcome": "found"
+      }
+    ]
+  },
+  "run_started_at": "2026-10-06T12:00:00Z",
+  "schema_version": 3,
+  "state": {
+    "config_fingerprint": "10e4ab7dca754ea7d64a556727450ec19667367ae1f55c20d7c4d991370290e9",
+    "generation": "synthetic-registry-1",
+    "mappings": [],
+    "mappings_complete": true,
+    "status": "verified"
+  }
+}

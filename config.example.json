@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "namespace": "0123456789abcdef0123456789abcdef",
+  "calendars": [
+    {"calendar_id": "calendar-alpha@example.invalid", "self_identities": ["calendar-alpha@example.invalid"], "self_identities_verified": true},
+    {"calendar_id": "calendar-beta@example.invalid", "self_identities": ["calendar-beta@example.invalid"], "self_identities_verified": true}
+  ]
+}

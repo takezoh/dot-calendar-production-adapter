@@ -1,0 +1,156 @@
+{
+  "adapter_schema_version": 2,
+  "calendars": [
+    {
+      "all_day_timezones": {},
+      "calendar_id": "calendar-alpha@example.invalid",
+      "detail_batches": [
+        {
+          "complete": true,
+          "requested_ids": [
+            "demo-source"
+          ],
+          "responses": [
+            {
+              "event": {
+                "attachments": null,
+                "attendees": [],
+                "color_id": null,
+                "description": "",
+                "display_title": null,
+                "display_url": null,
+                "end": "2026-10-07T19:00:00+09:00",
+                "event_label_id": null,
+                "event_type": "default",
+                "guests_can_modify": null,
+                "hangout_link": null,
+                "id": "demo-source",
+                "location": null,
+                "locked": null,
+                "organizer": null,
+                "original_start_time": "2026-10-07T18:00:00+09:00",
+                "recurrence": null,
+                "recurring_event_id": "demo-series",
+                "reminders": {
+                  "overrides": null,
+                  "use_default": true
+                },
+                "start": "2026-10-07T18:00:00+09:00",
+                "status": "confirmed",
+                "summary": "Synthetic event",
+                "transparency": null,
+                "url": null,
+                "visibility": "default"
+              },
+              "event_id": "demo-source",
+              "evidence": null,
+              "outcome": "found"
+            }
+          ]
+        }
+      ],
+      "listing": {
+        "complete": true,
+        "expanded": true,
+        "includes_ongoing": true,
+        "pages": [
+          {
+            "request_page_token": null,
+            "response": {
+              "events": [
+                {
+                  "description": "",
+                  "end": "2026-10-07T19:00:00+09:00",
+                  "event_type": "default",
+                  "id": "demo-source",
+                  "location": null,
+                  "my_response_status": null,
+                  "original_start_time": "2026-10-07T18:00:00+09:00",
+                  "recurring_event_id": "demo-series",
+                  "start": "2026-10-07T18:00:00+09:00",
+                  "status": "confirmed",
+                  "summary": "Synthetic event",
+                  "transparency": null
+                }
+              ],
+              "next_page_token": null
+            }
+          }
+        ],
+        "time_max": "2027-01-04T12:00:00+00:00",
+        "time_min": "2026-10-06T12:00:00Z"
+      },
+      "marker_searches": []
+    },
+    {
+      "all_day_timezones": {},
+      "calendar_id": "calendar-beta@example.invalid",
+      "detail_batches": [],
+      "listing": {
+        "complete": true,
+        "expanded": true,
+        "includes_ongoing": true,
+        "pages": [
+          {
+            "request_page_token": null,
+            "response": {
+              "events": [],
+              "next_page_token": null
+            }
+          }
+        ],
+        "time_max": "2027-01-04T12:00:00+00:00",
+        "time_min": "2026-10-06T12:00:00Z"
+      },
+      "marker_searches": [
+        {
+          "complete": true,
+          "coverage_verified": true,
+          "evidence": "synthetic-exhaustive-marker-lookup",
+          "marker": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:7d92c4f13339a6faa68a9bbdf3baeef7de7ee6fc36f67f977f4f295735c28243]",
+          "pages": [
+            {
+              "request_page_token": null,
+              "response": {
+                "events": [],
+                "next_page_token": null
+              }
+            }
+          ],
+          "scope": "exact_marker_all_destinations"
+        }
+      ]
+    }
+  ],
+  "config": {
+    "calendars": [
+      {
+        "calendar_id": "calendar-alpha@example.invalid",
+        "self_identities": [
+          "calendar-alpha@example.invalid"
+        ],
+        "self_identities_verified": true
+      },
+      {
+        "calendar_id": "calendar-beta@example.invalid",
+        "self_identities": [
+          "calendar-beta@example.invalid"
+        ],
+        "self_identities_verified": true
+      }
+    ],
+    "namespace": "0123456789abcdef0123456789abcdef",
+    "version": 1
+  },
+  "run_started_at": "2026-10-06T12:00:00Z",
+  "state": {
+    "mode": "planner",
+    "value": {
+      "config_fingerprint": "10e4ab7dca754ea7d64a556727450ec19667367ae1f55c20d7c4d991370290e9",
+      "generation": "synthetic-registry-1",
+      "mappings": [],
+      "mappings_complete": true,
+      "status": "verified"
+    }
+  }
+}

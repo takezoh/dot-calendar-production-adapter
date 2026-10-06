@@ -1,0 +1,8 @@
+{
+  "version": 1,
+  "namespace": "<EXISTING_NAMESPACE_32_LOWERCASE_HEX>",
+  "calendars": [
+    {"calendar_id": "<EXPLICIT_CALENDAR_A_ID>", "self_identities": ["<VERIFIED_SELF_EMAIL_A>"], "self_identities_verified": false},
+    {"calendar_id": "<EXPLICIT_CALENDAR_B_ID>", "self_identities": ["<VERIFIED_SELF_EMAIL_B>"], "self_identities_verified": false}
+  ]
+}

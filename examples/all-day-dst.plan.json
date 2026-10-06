@@ -1,0 +1,282 @@
+{
+  "actions": [
+    {
+      "concurrency": {
+        "atomic_cross_event_guarantee": false,
+        "immediate_prewrite_reread_required": true,
+        "limitation": "Snapshots detect observed changes; without provider CAS a change after reread can race with the write.",
+        "mode": "snapshot_reread",
+        "provider_cas_available": false,
+        "unobservable_provider_fields": [
+          "conferenceData",
+          "eventType_if_not_returned",
+          "other_unreturned_provider_fields"
+        ]
+      },
+      "desired": {
+        "all_day_bounds": {
+          "end": "2026-11-02T00:00:00-05:00",
+          "start": "2026-11-01T00:00:00-04:00"
+        },
+        "end": {
+          "date": "2026-11-02",
+          "timeZone": "America/New_York"
+        },
+        "fields": {
+          "attendees": [],
+          "conferenceData": null,
+          "description": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:0d2860793ca51769d589a3cd753086986f02f62112225ba0d363fdc65a665788]",
+          "eventType": "default",
+          "hangout_link": null,
+          "location": null,
+          "other": {},
+          "recurrence": [],
+          "reminders": {
+            "overrides": [],
+            "useDefault": false
+          },
+          "summary": "blocked",
+          "transparency": "opaque",
+          "visibility": "private"
+        },
+        "start": {
+          "date": "2026-11-01",
+          "timeZone": "America/New_York"
+        },
+        "status": "confirmed"
+      },
+      "destination": {
+        "calendar_id": "calendar-beta@example.invalid",
+        "event": null,
+        "event_id": null,
+        "outcome": "marker_absent"
+      },
+      "expected": {
+        "config": {
+          "calendars": [
+            {
+              "calendar_id": "calendar-alpha@example.invalid",
+              "self_identities": [
+                "calendar-alpha@example.invalid"
+              ],
+              "self_identities_verified": true
+            },
+            {
+              "calendar_id": "calendar-beta@example.invalid",
+              "self_identities": [
+                "calendar-beta@example.invalid"
+              ],
+              "self_identities_verified": true
+            }
+          ],
+          "namespace": "0123456789abcdef0123456789abcdef",
+          "version": 1
+        },
+        "connector_capabilities": {
+          "concurrency_mode": "snapshot_reread",
+          "conditional_writes": false,
+          "field_profile": "google_calendar_projection",
+          "provider_etag": false
+        },
+        "destination": {
+          "calendar_id": "calendar-beta@example.invalid",
+          "event": null,
+          "event_id": null,
+          "outcome": "marker_absent"
+        },
+        "fingerprints": {
+          "config": "10e4ab7dca754ea7d64a556727450ec19667367ae1f55c20d7c4d991370290e9",
+          "connector_capabilities": "3c5c3a3b317486f5e89572a8b50806c8bf994f97fb4c6d3351afbb8d95cda6f1",
+          "destination": "0ffd3297ea114945bef42d8703d888aa97be000d4aea707b9e1ea5831eed8741",
+          "marker_inventory": "a67fd215bd1ab3cff95238e0af1f89e6ec56003de7f55532450066271a34069b",
+          "source": "1560a2b6fa4706a453f42011a8ebd34919ce2f6e3227576fb0110a0ca13ecb8e"
+        },
+        "marker_inventory": {
+          "calendar_id": "calendar-beta@example.invalid",
+          "complete": true,
+          "marker": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:0d2860793ca51769d589a3cd753086986f02f62112225ba0d363fdc65a665788]",
+          "marker_search": {
+            "complete": true,
+            "events": [],
+            "marker": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:0d2860793ca51769d589a3cd753086986f02f62112225ba0d363fdc65a665788]",
+            "next_page_token": null,
+            "scope": "exact_marker_all_destinations"
+          },
+          "matching_events": [],
+          "registered_destination_ids": [],
+          "registry_complete": true,
+          "scope": "current_window_plus_registered_ids",
+          "suspect_events": [],
+          "window": {
+            "end_exclusive": "2027-01-04T12:00:00+00:00",
+            "start": "2026-10-06T12:00:00+00:00"
+          }
+        },
+        "source": {
+          "calendar_id": "calendar-alpha@example.invalid",
+          "event": {
+            "all_day_bounds": {
+              "end": "2026-11-02T00:00:00-05:00",
+              "start": "2026-11-01T00:00:00-04:00"
+            },
+            "end": {
+              "date": "2026-11-02",
+              "timeZone": "America/New_York"
+            },
+            "etag": null,
+            "fields": {
+              "attendees": [],
+              "conferenceData": {
+                "unobserved": true
+              },
+              "description": "",
+              "eventType": "default",
+              "hangout_link": null,
+              "location": null,
+              "other": {
+                "observed": {},
+                "unobserved_provider_fields": true
+              },
+              "recurrence": [],
+              "reminders": {
+                "overrides": [],
+                "useDefault": true
+              },
+              "summary": "Synthetic event",
+              "transparency": null,
+              "visibility": "default"
+            },
+            "fields_verified": true,
+            "id": "demo-all-day",
+            "original_start_time": null,
+            "recurring_event_id": null,
+            "self_response": "none",
+            "start": {
+              "date": "2026-11-01",
+              "timeZone": "America/New_York"
+            },
+            "status": "confirmed"
+          },
+          "event_id": "demo-all-day",
+          "evidence": null,
+          "outcome": "found"
+        },
+        "state_config_fingerprint": "10e4ab7dca754ea7d64a556727450ec19667367ae1f55c20d7c4d991370290e9",
+        "state_generation": "synthetic-registry-1"
+      },
+      "id": "6fc6333b4ae14f488da1e1190935ba689afdec5d62d90a77b8278eef90e8d72b",
+      "marker": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:0d2860793ca51769d589a3cd753086986f02f62112225ba0d363fdc65a665788]",
+      "notes": [],
+      "op": "create",
+      "reason": "eligible_busy_source_without_owned_mirror",
+      "source": {
+        "calendar_id": "calendar-alpha@example.invalid",
+        "event": {
+          "all_day_bounds": {
+            "end": "2026-11-02T00:00:00-05:00",
+            "start": "2026-11-01T00:00:00-04:00"
+          },
+          "end": {
+            "date": "2026-11-02",
+            "timeZone": "America/New_York"
+          },
+          "etag": null,
+          "fields": {
+            "attendees": [],
+            "conferenceData": {
+              "unobserved": true
+            },
+            "description": "",
+            "eventType": "default",
+            "hangout_link": null,
+            "location": null,
+            "other": {
+              "observed": {},
+              "unobserved_provider_fields": true
+            },
+            "recurrence": [],
+            "reminders": {
+              "overrides": [],
+              "useDefault": true
+            },
+            "summary": "Synthetic event",
+            "transparency": null,
+            "visibility": "default"
+          },
+          "fields_verified": true,
+          "id": "demo-all-day",
+          "original_start_time": null,
+          "recurring_event_id": null,
+          "self_response": "none",
+          "start": {
+            "date": "2026-11-01",
+            "timeZone": "America/New_York"
+          },
+          "status": "confirmed"
+        },
+        "event_id": "demo-all-day",
+        "evidence": null,
+        "outcome": "found"
+      },
+      "write_contract": {
+        "create_only_default_event_without_attendees_location_conference_or_reminders": true,
+        "never_send_unobserved_sentinels_or_normalization_metadata": true,
+        "preserve_unspecified_fields": true,
+        "update_fields": [
+          "start",
+          "end"
+        ]
+      }
+    }
+  ],
+  "bootstrap_complete": false,
+  "bootstrap_mappings": [],
+  "concurrency": {
+    "atomic_cross_event_guarantee": false,
+    "immediate_prewrite_reread_required": true,
+    "limitation": "Snapshots detect observed changes; without provider CAS a change after reread can race with the write.",
+    "mode": "snapshot_reread",
+    "provider_cas_available": false,
+    "unobservable_provider_fields": [
+      "conferenceData",
+      "eventType_if_not_returned",
+      "other_unreturned_provider_fields"
+    ]
+  },
+  "config_fingerprint": "10e4ab7dca754ea7d64a556727450ec19667367ae1f55c20d7c4d991370290e9",
+  "counts": {
+    "conflict": 0,
+    "create": 1,
+    "delete": 0,
+    "noop": 0,
+    "update": 0
+  },
+  "executor_requirements": [
+    "Use only the existing authenticated Google Calendar plugin and the two explicit IDs and verified self identities in RuntimeConfig.",
+    "Admit one root-coordinated serialized execution after paused/drained cutover, or use an actual external atomic-claim backend; owner fields and read/write readback are not locks.",
+    "Immediately before every write reread source/destination, current-window inventory and registered destination IDs; call revalidate_action; replan on mismatch.",
+    "Gate every command exit and result before the next journal or Calendar step. Use preflight_action before intent; check fingerprints before attempt_started whenever possible. Final revalidation must also pass.",
+    "Only a complete durable zero-call execution trace plus explicit fresh serialized recovery approval permits one NEW linked attempt; preserve issued/operation history, never reopen or reuse the old attempt.",
+    "Recheck whole-description marker and every observable protected field; never invent unexposed provider fields as absent.",
+    "Before create require true universal lookup coverage or explicit managed state/window/indexed-search coverage; never equate exhausted q pages with universal absence.",
+    "Managed creates require complete durable issuance/operation history, all tracked-ID reads, and durable prepared intent then attempt_started readback before one Calendar call; atomic claim is optional by capability.",
+    "The stateless guard cannot detect identical-input replay. Serialized mode relies on one root-admitted uninterrupted execution, never resumes or retries an attempt, and holds crashes/unknown outcomes for read-based reconciliation.",
+    "Managed indexed coverage cannot detect an unknown manually copied-and-obscured out-of-window mirror; inspect whole normalized candidate descriptions, never substring ownership.",
+    "Use provider etag preconditions for updates/deletes when available; if unavailable, report the residual read/write race.",
+    "Journal intent durably before write; after write, read and verify full fields then persist the verified mapping.",
+    "On timeout/unknown outcome mark state uncertain, recover by reads of marker and known IDs, never blindly retry.",
+    "Never execute conflict/noop; never apply normalization metadata such as all_day_bounds as API fields.",
+    "Update only start/end; preserve all unspecified fields. Projection mode cannot prove absence of hidden provider properties."
+  ],
+  "namespace": "0123456789abcdef0123456789abcdef",
+  "plan_id": "9e6ec4b5d4f068c822f5f3142b274e05c9e24b5cc5242c2c1978b2fe551000e2",
+  "reconstruction_candidates": [],
+  "run_started_at": "2026-10-06T12:00:00Z",
+  "schema_version": 3,
+  "state_generation": "synthetic-registry-1",
+  "status": "ready",
+  "window": {
+    "end_exclusive": "2027-01-04T12:00:00+00:00",
+    "start": "2026-10-06T12:00:00+00:00"
+  }
+}
