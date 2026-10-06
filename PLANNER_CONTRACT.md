@@ -1,4 +1,4 @@
-# Portable calendar mirror planner 1.4.1 - JSON contract v3
+# Portable calendar mirror planner 1.4.2 - JSON contract v3
 
 `planner.py` is a self-contained Python 3.10+ standard-library program. It accepts
 normalized JSON and produces a deterministic safe plan. It has no network calls,
@@ -400,6 +400,22 @@ reconstruction_candidates, bootstrap_mappings and bootstrap_complete. Invalid
 input produces a global blocked conflict and zero mutations. review_required may
 contain independent safe items; blocked/bootstrap_ready never authorize calendar
 mutation. Noop/conflict never authorize writes.
+
+In particular, an intact registered mirror with a protected content edit remains a
+`destination_manual_non_time_edit` conflict while unrelated managed creates can be
+returned. The saved canonical baseline is not adopted or changed. This separation
+applies only when exact ID/marker uniqueness, stable non-recurring confirmed identity,
+complete reads, issued history and indexed coverage are all verified. Missing or
+damaged identities, duplicate/suspect markers and unknown attempts remain global
+creation blockers (`tracked_destination_missing_or_identity_changed` or the more
+specific coverage/history reason). The full current edited event stays in each
+create's expected inventory; final guards do not omit or normalize away its edits.
+
+An executor must explicitly handle planner exit 1/`review_required` at action scope
+to make use of unaffected actions. Never ignore the exit status or dispatch a held
+conflict. Each selected mutation still needs its own successful fresh guards and
+durable execution contract. Series rebind validation is unchanged and still rejects
+any edited mirror, including a manually added reminder.
 
 Actions have op create/update/delete/noop/conflict, reason, marker, complete
 expected source/destination observations, desired projection for create/update,

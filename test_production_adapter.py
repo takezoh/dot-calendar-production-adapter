@@ -652,7 +652,7 @@ class ManagedAdapterTests(unittest.TestCase):
         add_managed_lookup(raw, fresh_source)
         result = p.plan(a.adapt(raw))
         self.assertEqual(result["counts"]["create"], 0)
-        self.assertIn("tracked_destination_missing_or_manually_changed", [x["reason"] for x in result["actions"]])
+        self.assertIn("tracked_destination_missing_or_identity_changed", [x["reason"] for x in result["actions"]])
 
     def test_raw_context_preserved_without_mutating_input(self):
         raw = self.setup_raw()
@@ -921,6 +921,66 @@ class EndedCancellationAdapterTests(unittest.TestCase):
             result = p.plan(a.adapt(raw))
             self.assertEqual(writes(result), [])
             self.assertEqual(result["counts"]["conflict"], 1)
+
+
+def held_content_raw():
+    import test_planner as fixtures
+    source = detail("synthetic-known-source")
+    destination = target(source, event_id="synthetic-edited-mirror")
+    stored = mapping(source, destination)
+    destination["reminders"] = {"use_default": False, "overrides": [{"method": "popup", "minutes": 5}]}
+    new_a, new_b = detail("synthetic-new-alpha"), detail("synthetic-new-beta")
+    raw = raw_input([source, new_a], [destination, new_b], [stored])
+    add_managed_lookup(raw, new_a, A, namespace_candidates=[destination])
+    add_managed_lookup(raw, new_b, B)
+    raw["managed_context"] = fixtures.serialized({"managed_context": raw["managed_context"]})["managed_context"]
+    return raw
+
+
+class ManagedContentIsolationAdapterTests(unittest.TestCase):
+    def test_direct_reminder_edit_stays_held_while_both_new_source_creates_pass_guards(self):
+        import test_planner as fixtures
+        raw = held_content_raw()
+        before = deepcopy(raw)
+        result = p.plan(a.adapt(raw))
+        self.assertEqual(result["status"], "review_required")
+        self.assertEqual(result["counts"], {"create": 2, "update": 0, "delete": 0, "noop": 0, "conflict": 1}, result)
+        self.assertEqual(raw, before)
+        held = next(action for action in result["actions"] if action["op"] == "conflict")
+        self.assertEqual(held["reason"], "destination_manual_non_time_edit")
+        self.assertEqual(held["destination"]["event"]["fields"]["reminders"]["overrides"], [{"method": "popup", "minutes": 5}])
+        for action in writes(result):
+            self.assertTrue(p.preflight_action(action, fixtures.preflight_fresh(action))["ready_to_prepare"])
+            self.assertTrue(p.revalidate_action(action, fixtures.claimed_fresh(action))["allowed"])
+
+    def test_direct_damaged_marker_duplicate_and_unknown_attempts_still_block_creates(self):
+        for change in ("marker", "duplicate", "attempt"):
+            raw = held_content_raw()
+            if change == "marker":
+                destination = raw["calendars"][1]["detail_batches"][0]["responses"][0]["event"]
+                destination["description"] += " manual"
+                # Preserve the same actual observation in every search/list page.
+                raw["calendars"][1]["listing"]["pages"][0]["response"]["events"][0] = search(destination)
+                raw["calendars"][1]["marker_searches"][0]["queries"][0]["pages"][0]["response"]["events"][0] = search(destination)
+            elif change == "duplicate":
+                destination = deepcopy(raw["calendars"][1]["detail_batches"][0]["responses"][0]["event"])
+                destination["id"] = "synthetic-duplicate-owned"
+                raw["calendars"][1]["listing"]["pages"][0]["response"]["events"].append(search(destination))
+                raw["calendars"][1]["detail_batches"].extend(split_batches([found(destination)]))
+            else:
+                raw["managed_context"]["ledger"]["operations"].append({"operation_id": "synthetic-pending", "action_id": "synthetic-action",
+                    "marker": raw["state"]["value"]["mappings"][0]["marker"], "status": "uncertain"})
+            self.assertEqual(p.plan(a.adapt(raw))["counts"]["create"], 0, change)
+
+    def test_direct_incomplete_detail_or_query_pages_fail_closed_despite_local_content_conflict(self):
+        for change in ("detail", "query"):
+            raw = held_content_raw()
+            if change == "detail":
+                raw["calendars"][1]["detail_batches"][0]["responses"].pop(0)
+            else:
+                raw["calendars"][1]["marker_searches"][0]["queries"][0]["pages"][0]["response"]["next_page_token"] = "unread"
+            with self.assertRaises(a.AdapterError):
+                a.adapt(raw)
 
 
 if __name__ == "__main__":

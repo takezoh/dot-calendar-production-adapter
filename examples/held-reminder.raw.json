@@ -1,0 +1,528 @@
+{
+  "adapter_schema_version": 2,
+  "calendars": [
+    {
+      "all_day_timezones": {},
+      "calendar_id": "calendar-alpha@example.invalid",
+      "detail_batches": [
+        {
+          "complete": true,
+          "requested_ids": [
+            "synthetic-known-source",
+            "synthetic-new-alpha"
+          ],
+          "responses": [
+            {
+              "event": {
+                "attachments": null,
+                "attendees": [],
+                "color_id": null,
+                "description": "",
+                "display_title": null,
+                "display_url": null,
+                "end": "2026-10-07T19:00:00+09:00",
+                "event_label_id": null,
+                "event_type": "default",
+                "guests_can_modify": null,
+                "hangout_link": null,
+                "id": "synthetic-known-source",
+                "location": null,
+                "locked": null,
+                "organizer": null,
+                "original_start_time": null,
+                "recurrence": null,
+                "recurring_event_id": null,
+                "reminders": {
+                  "overrides": null,
+                  "use_default": true
+                },
+                "start": "2026-10-07T18:00:00+09:00",
+                "status": "confirmed",
+                "summary": "Synthetic event",
+                "transparency": null,
+                "url": null,
+                "visibility": "default"
+              },
+              "event_id": "synthetic-known-source",
+              "evidence": null,
+              "outcome": "found"
+            },
+            {
+              "event": {
+                "attachments": null,
+                "attendees": [],
+                "color_id": null,
+                "description": "",
+                "display_title": null,
+                "display_url": null,
+                "end": "2026-10-07T19:00:00+09:00",
+                "event_label_id": null,
+                "event_type": "default",
+                "guests_can_modify": null,
+                "hangout_link": null,
+                "id": "synthetic-new-alpha",
+                "location": null,
+                "locked": null,
+                "organizer": null,
+                "original_start_time": null,
+                "recurrence": null,
+                "recurring_event_id": null,
+                "reminders": {
+                  "overrides": null,
+                  "use_default": true
+                },
+                "start": "2026-10-07T18:00:00+09:00",
+                "status": "confirmed",
+                "summary": "Synthetic event",
+                "transparency": null,
+                "url": null,
+                "visibility": "default"
+              },
+              "event_id": "synthetic-new-alpha",
+              "evidence": null,
+              "outcome": "found"
+            }
+          ]
+        }
+      ],
+      "listing": {
+        "complete": true,
+        "expanded": true,
+        "includes_ongoing": true,
+        "pages": [
+          {
+            "request_page_token": null,
+            "response": {
+              "events": [
+                {
+                  "description": "",
+                  "end": "2026-10-07T19:00:00+09:00",
+                  "event_type": "default",
+                  "id": "synthetic-known-source",
+                  "location": null,
+                  "my_response_status": null,
+                  "original_start_time": null,
+                  "recurring_event_id": null,
+                  "start": "2026-10-07T18:00:00+09:00",
+                  "status": "confirmed",
+                  "summary": "Synthetic event",
+                  "transparency": null
+                },
+                {
+                  "description": "",
+                  "end": "2026-10-07T19:00:00+09:00",
+                  "event_type": "default",
+                  "id": "synthetic-new-alpha",
+                  "location": null,
+                  "my_response_status": null,
+                  "original_start_time": null,
+                  "recurring_event_id": null,
+                  "start": "2026-10-07T18:00:00+09:00",
+                  "status": "confirmed",
+                  "summary": "Synthetic event",
+                  "transparency": null
+                }
+              ],
+              "next_page_token": null
+            }
+          }
+        ],
+        "time_max": "2027-01-04T12:00:00+00:00",
+        "time_min": "2026-10-06T12:00:00Z"
+      },
+      "marker_searches": [
+        {
+          "complete": true,
+          "marker": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:badbfa4e66036be252ca1717386cec9a1de324357a39743ae34cc9b76b1be055]",
+          "queries": [
+            {
+              "complete": true,
+              "kind": "namespace",
+              "pages": [
+                {
+                  "request_page_token": null,
+                  "response": {
+                    "events": [],
+                    "next_page_token": null
+                  }
+                }
+              ],
+              "q": "0123456789abcdef0123456789abcdef",
+              "time_max": null,
+              "time_min": null
+            },
+            {
+              "complete": true,
+              "kind": "key",
+              "pages": [
+                {
+                  "request_page_token": null,
+                  "response": {
+                    "events": [],
+                    "next_page_token": null
+                  }
+                }
+              ],
+              "q": "badbfa4e66036be252ca1717386cec9a1de324357a39743ae34cc9b76b1be055",
+              "time_max": null,
+              "time_min": null
+            }
+          ],
+          "scope": "managed_state_window_and_indexed_search"
+        }
+      ]
+    },
+    {
+      "all_day_timezones": {},
+      "calendar_id": "calendar-beta@example.invalid",
+      "detail_batches": [
+        {
+          "complete": true,
+          "requested_ids": [
+            "synthetic-edited-mirror",
+            "synthetic-new-beta"
+          ],
+          "responses": [
+            {
+              "event": {
+                "attachments": null,
+                "attendees": [],
+                "color_id": null,
+                "description": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:92badd88c3c59fc0a239f36af9a209f1c0b7c9da24785ce7424d3360aad89e2c]",
+                "display_title": null,
+                "display_url": null,
+                "end": "2026-10-07T19:00:00+09:00",
+                "event_label_id": null,
+                "event_type": "default",
+                "guests_can_modify": null,
+                "hangout_link": null,
+                "id": "synthetic-edited-mirror",
+                "location": null,
+                "locked": null,
+                "organizer": null,
+                "original_start_time": null,
+                "recurrence": null,
+                "recurring_event_id": null,
+                "reminders": {
+                  "overrides": [
+                    {
+                      "method": "popup",
+                      "minutes": 5
+                    }
+                  ],
+                  "use_default": false
+                },
+                "start": "2026-10-07T18:00:00+09:00",
+                "status": "confirmed",
+                "summary": "blocked",
+                "transparency": "opaque",
+                "url": null,
+                "visibility": "private"
+              },
+              "event_id": "synthetic-edited-mirror",
+              "evidence": null,
+              "outcome": "found"
+            },
+            {
+              "event": {
+                "attachments": null,
+                "attendees": [],
+                "color_id": null,
+                "description": "",
+                "display_title": null,
+                "display_url": null,
+                "end": "2026-10-07T19:00:00+09:00",
+                "event_label_id": null,
+                "event_type": "default",
+                "guests_can_modify": null,
+                "hangout_link": null,
+                "id": "synthetic-new-beta",
+                "location": null,
+                "locked": null,
+                "organizer": null,
+                "original_start_time": null,
+                "recurrence": null,
+                "recurring_event_id": null,
+                "reminders": {
+                  "overrides": null,
+                  "use_default": true
+                },
+                "start": "2026-10-07T18:00:00+09:00",
+                "status": "confirmed",
+                "summary": "Synthetic event",
+                "transparency": null,
+                "url": null,
+                "visibility": "default"
+              },
+              "event_id": "synthetic-new-beta",
+              "evidence": null,
+              "outcome": "found"
+            }
+          ]
+        }
+      ],
+      "listing": {
+        "complete": true,
+        "expanded": true,
+        "includes_ongoing": true,
+        "pages": [
+          {
+            "request_page_token": null,
+            "response": {
+              "events": [
+                {
+                  "description": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:92badd88c3c59fc0a239f36af9a209f1c0b7c9da24785ce7424d3360aad89e2c]",
+                  "end": "2026-10-07T19:00:00+09:00",
+                  "event_type": "default",
+                  "id": "synthetic-edited-mirror",
+                  "location": null,
+                  "my_response_status": null,
+                  "original_start_time": null,
+                  "recurring_event_id": null,
+                  "start": "2026-10-07T18:00:00+09:00",
+                  "status": "confirmed",
+                  "summary": "blocked",
+                  "transparency": "opaque"
+                },
+                {
+                  "description": "",
+                  "end": "2026-10-07T19:00:00+09:00",
+                  "event_type": "default",
+                  "id": "synthetic-new-beta",
+                  "location": null,
+                  "my_response_status": null,
+                  "original_start_time": null,
+                  "recurring_event_id": null,
+                  "start": "2026-10-07T18:00:00+09:00",
+                  "status": "confirmed",
+                  "summary": "Synthetic event",
+                  "transparency": null
+                }
+              ],
+              "next_page_token": null
+            }
+          }
+        ],
+        "time_max": "2027-01-04T12:00:00+00:00",
+        "time_min": "2026-10-06T12:00:00Z"
+      },
+      "marker_searches": [
+        {
+          "complete": true,
+          "marker": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:6f5a2e171ed74dc9c3a8ca7c3b47ce1b0acefe7513cc9bd816dfc9edee6f2dd2]",
+          "queries": [
+            {
+              "complete": true,
+              "kind": "namespace",
+              "pages": [
+                {
+                  "request_page_token": null,
+                  "response": {
+                    "events": [
+                      {
+                        "description": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:92badd88c3c59fc0a239f36af9a209f1c0b7c9da24785ce7424d3360aad89e2c]",
+                        "end": "2026-10-07T19:00:00+09:00",
+                        "event_type": "default",
+                        "id": "synthetic-edited-mirror",
+                        "location": null,
+                        "my_response_status": null,
+                        "original_start_time": null,
+                        "recurring_event_id": null,
+                        "start": "2026-10-07T18:00:00+09:00",
+                        "status": "confirmed",
+                        "summary": "blocked",
+                        "transparency": "opaque"
+                      }
+                    ],
+                    "next_page_token": null
+                  }
+                }
+              ],
+              "q": "0123456789abcdef0123456789abcdef",
+              "time_max": null,
+              "time_min": null
+            },
+            {
+              "complete": true,
+              "kind": "key",
+              "pages": [
+                {
+                  "request_page_token": null,
+                  "response": {
+                    "events": [],
+                    "next_page_token": null
+                  }
+                }
+              ],
+              "q": "6f5a2e171ed74dc9c3a8ca7c3b47ce1b0acefe7513cc9bd816dfc9edee6f2dd2",
+              "time_max": null,
+              "time_min": null
+            }
+          ],
+          "scope": "managed_state_window_and_indexed_search"
+        }
+      ]
+    }
+  ],
+  "config": {
+    "calendars": [
+      {
+        "calendar_id": "calendar-alpha@example.invalid",
+        "self_identities": [
+          "calendar-alpha@example.invalid"
+        ],
+        "self_identities_verified": true
+      },
+      {
+        "calendar_id": "calendar-beta@example.invalid",
+        "self_identities": [
+          "calendar-beta@example.invalid"
+        ],
+        "self_identities_verified": true
+      }
+    ],
+    "namespace": "0123456789abcdef0123456789abcdef",
+    "version": 1
+  },
+  "managed_context": {
+    "ledger": {
+      "complete": true,
+      "config_fingerprint": "10e4ab7dca754ea7d64a556727450ec19667367ae1f55c20d7c4d991370290e9",
+      "durable": true,
+      "generation": "synthetic-ledger-1",
+      "issued": [
+        {
+          "destination_calendar_id": "calendar-beta@example.invalid",
+          "destination_ids": [
+            "synthetic-edited-mirror"
+          ],
+          "disposition": "mapped",
+          "marker": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:92badd88c3c59fc0a239f36af9a209f1c0b7c9da24785ce7424d3360aad89e2c]"
+        }
+      ],
+      "operations": [
+        {
+          "action_id": null,
+          "marker": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:92badd88c3c59fc0a239f36af9a209f1c0b7c9da24785ce7424d3360aad89e2c]",
+          "operation_id": "synthetic-migrated-0",
+          "status": "committed"
+        }
+      ],
+      "provenance": {
+        "evidence": "synthetic-complete-history-and-bootstrap-audit",
+        "history_complete": true,
+        "kind": "verified_history_and_state",
+        "state_verified": true
+      },
+      "status": "verified",
+      "version": 2
+    },
+    "single_writer": {
+      "cutover_paused_and_drained": true,
+      "mode": "serialized_runner",
+      "only_one_execution_admitted": true,
+      "root_coordinated": true,
+      "token": "synthetic-root-admission-1"
+    }
+  },
+  "run_started_at": "2026-10-06T12:00:00Z",
+  "state": {
+    "mode": "planner",
+    "value": {
+      "config_fingerprint": "10e4ab7dca754ea7d64a556727450ec19667367ae1f55c20d7c4d991370290e9",
+      "generation": "synthetic-registry-1",
+      "mappings": [
+        {
+          "destination": {
+            "calendar_id": "calendar-beta@example.invalid",
+            "event_id": "synthetic-edited-mirror"
+          },
+          "marker": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:92badd88c3c59fc0a239f36af9a209f1c0b7c9da24785ce7424d3360aad89e2c]",
+          "source": {
+            "calendar_id": "calendar-alpha@example.invalid",
+            "event_id": "synthetic-known-source",
+            "original_start_time": null
+          },
+          "verified_destination": {
+            "all_day_bounds": null,
+            "end": {
+              "dateTime": "2026-10-07T19:00:00+09:00"
+            },
+            "etag": null,
+            "fields": {
+              "attendees": [],
+              "conferenceData": {
+                "unobserved": true
+              },
+              "description": "[dot-block-sync:v1:0123456789abcdef0123456789abcdef:92badd88c3c59fc0a239f36af9a209f1c0b7c9da24785ce7424d3360aad89e2c]",
+              "eventType": "default",
+              "hangout_link": null,
+              "location": null,
+              "other": {
+                "observed": {},
+                "unobserved_provider_fields": true
+              },
+              "recurrence": [],
+              "reminders": {
+                "overrides": [],
+                "useDefault": false
+              },
+              "summary": "blocked",
+              "transparency": "opaque",
+              "visibility": "private"
+            },
+            "fields_verified": true,
+            "id": "synthetic-edited-mirror",
+            "original_start_time": null,
+            "recurring_event_id": null,
+            "self_response": "none",
+            "start": {
+              "dateTime": "2026-10-07T18:00:00+09:00"
+            },
+            "status": "confirmed"
+          },
+          "verified_source": {
+            "all_day_bounds": null,
+            "end": {
+              "dateTime": "2026-10-07T19:00:00+09:00"
+            },
+            "etag": null,
+            "fields": {
+              "attendees": [],
+              "conferenceData": {
+                "unobserved": true
+              },
+              "description": "",
+              "eventType": "default",
+              "hangout_link": null,
+              "location": null,
+              "other": {
+                "observed": {},
+                "unobserved_provider_fields": true
+              },
+              "recurrence": [],
+              "reminders": {
+                "overrides": [],
+                "useDefault": true
+              },
+              "summary": "Synthetic event",
+              "transparency": null,
+              "visibility": "default"
+            },
+            "fields_verified": true,
+            "id": "synthetic-known-source",
+            "original_start_time": null,
+            "recurring_event_id": null,
+            "self_response": "none",
+            "start": {
+              "dateTime": "2026-10-07T18:00:00+09:00"
+            },
+            "status": "confirmed"
+          }
+        }
+      ],
+      "mappings_complete": true,
+      "status": "verified"
+    }
+  }
+}

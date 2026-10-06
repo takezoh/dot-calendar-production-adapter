@@ -17,7 +17,7 @@ import sys
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 SCHEMA_VERSION = 3
-RELEASE = "1.4.1"
+RELEASE = "1.4.2"
 RECOVERY_ITEM_SCOPE = "recovery_item_v1"
 UNIVERSAL_SCOPE = "exact_marker_all_destinations"
 MANAGED_SCOPE = "managed_state_window_and_indexed_search"
@@ -1079,9 +1079,17 @@ class Planner:
                     return "mapped_marker_requires_committed_operation_history"
                 if mapping is None or mapping["destination"] != ref(entry["destination_calendar_id"], entry["destination_ids"][0]):
                     return "issued_marker_without_verified_mapped_destination"
-                target = self.details[pair_ref(self.config, mapping["destination"])].get("event")
-                if target is None or not canonical_mirror(target, issued_marker, self.profile) or protected(target) != protected(mapping["verified_destination"]):
-                    return "tracked_destination_missing_or_manually_changed"
+                dkey = pair_ref(self.config, mapping["destination"])
+                target = self.details[dkey].get("event")
+                # Coverage needs a unique, still-identifiable registered mirror.
+                # Protected content edits are held by reconcile() for that item;
+                # they do not erase its known identity or authorize overwriting it.
+                if (target is None or any(target[field] != mapping["verified_destination"][field]
+                                         for field in ("status", "original_start_time", "recurring_event_id", "self_response"))
+                        or description_kind(self.config, target["fields"]["description"]) != ("owned", issued_marker)
+                        or self.markers.get((dkey[0], issued_marker), []) != [dkey]
+                        or self.suspects.get((dkey[0], issued_marker))):
+                    return "tracked_destination_missing_or_identity_changed"
             elif entry["disposition"] == "retired":
                 if mapping is not None or any(self.details[(entry["destination_calendar_id"], eid)]["outcome"] not in {"deleted", "cancelled"}
                                               for eid in entry["destination_ids"]):

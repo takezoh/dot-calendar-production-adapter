@@ -1,4 +1,4 @@
-# Managed creation coverage: planner 1.4.1 / adapter 1.3.1
+# Managed creation coverage: planner 1.4.2 / adapter 1.3.2
 
 This adds an explicitly narrower, truthful alternative to a universal marker
 lookup. Planner schema 3 and raw adapter schema 2 require RuntimeConfig and support an OPTIONAL
@@ -25,8 +25,12 @@ For a new busy source occurrence, creation is proposed only when:
    evidence-bound zero-call recovery in [RECOVERY_CONTRACT.md](RECOVERY_CONTRACT.md)
    authorizes one new linked attempt. Issued history is retained forever.
 5. All mapped ledger destinations have matching verified registry mappings and
-   canonical observable current fields; manual non-time edits or missing/damaged
-   mirrors block managed creates. Retired IDs need explicit known-ID terminal
+   unique intact owned identities: exact destination ID, a whole-description marker
+   at that ID only, no matching suspects, and unchanged confirmed status,
+   original_start_time, recurring_event_id and self_response. A protected content
+   edit (for example a five-minute popup reminder) remains an item-level conflict;
+   it does not block unrelated creates. Missing destinations or uncertain/damaged
+   identities still block all managed creates. Retired IDs need explicit known-ID terminal
    verification. All unresolved operations conservatively block managed creates,
    even when they concern a different marker. Existing registered reconciliation
    still requires verified state. Confirmed source-removal cleanup also blocks

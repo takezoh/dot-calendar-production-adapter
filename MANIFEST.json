@@ -1,47 +1,47 @@
 {
-  "release": "1.3.1",
+  "release": "1.3.2",
   "raw_schema_version": 2,
-  "planner_release": "1.4.1",
+  "planner_release": "1.4.2",
   "planner_schema_version": 3,
-  "pinned_planner_sha256": "8f96759690bc53ec0fe79d50064abc582dbb34dc62215c9faff66083fd5b2d5f",
+  "pinned_planner_sha256": "6346f6495ff5d34d6482efef69d3f169afe3491ced50168b6e96f9b1ac220ea8",
   "config_version": 1,
   "managed_ledger_version": 2,
-  "tests_passed": 335,
+  "tests_passed": 350,
   "files": [
     {
       "path": "production_adapter.py",
       "bytes": 27854,
-      "sha256": "0b1ada839cbaaaaefb442192de6422321afa2534b192a834d89ae71d0d40a80f"
+      "sha256": "b3806ca314ba9679266bcfab05ffa95036b0de47efa1f655131a854d0ccf9f5b"
     },
     {
       "path": "test_production_adapter.py",
-      "bytes": 49216,
-      "sha256": "472de6105fc6f773bbe1fd316ad61f142f05958a12e410c80455dd935ab79777"
+      "bytes": 52964,
+      "sha256": "c2f959444877c1340be8bc7782692b89f7efebdd3d2a93b8e4a737b11b4e6323"
     },
     {
       "path": "ADAPTER_CONTRACT.md",
-      "bytes": 19414,
-      "sha256": "62bffcd625712500c1597175687f29896fa2beb63c4504172a660f994ce06839"
+      "bytes": 19809,
+      "sha256": "1310f29fe4e7fda6ff58fb311ddf14e88dc53b3f3f2d97f40ad90038ba577cd0"
     },
     {
       "path": "planner.py",
-      "bytes": 111569,
-      "sha256": "8f96759690bc53ec0fe79d50064abc582dbb34dc62215c9faff66083fd5b2d5f"
+      "bytes": 112181,
+      "sha256": "6346f6495ff5d34d6482efef69d3f169afe3491ced50168b6e96f9b1ac220ea8"
     },
     {
       "path": "test_planner.py",
-      "bytes": 173451,
-      "sha256": "2c07c8731ac0e1d4db4fdd0bb24f7f618d3c06a7389d746f826b94328c74eb90"
+      "bytes": 183966,
+      "sha256": "39e9b32c5bb9ca209e0ed4905f4829ada7b2ea8d92f15bc18a7b809dfe4e7cc0"
     },
     {
       "path": "MANAGED_COVERAGE.md",
-      "bytes": 17775,
-      "sha256": "76c9c07a837c7fdc7c25e04a0fd5624462c53ffb07aa1ce102c3394bd2e0895b"
+      "bytes": 18112,
+      "sha256": "399616049cf1576f7fb54a39b95a3a3269353d7dcaca90872cdbf543c7de3780"
     },
     {
       "path": "PLANNER_CONTRACT.md",
-      "bytes": 28836,
-      "sha256": "9157da7316d8f975379f06603e97bbdbb98aa11d314bb79cd07149560c9a2b12"
+      "bytes": 29966,
+      "sha256": "29304f84d2ed7d3648633611dc367d389911eeb89cf17c9f5fe1f424f1ef06e1"
     },
     {
       "path": "RUNTIME_CONFIG.md",
@@ -65,13 +65,13 @@
     },
     {
       "path": "build_adapter_release.py",
-      "bytes": 7385,
-      "sha256": "80b26c1fdecbc22d96753262137a35a0e14bc0ac2039ad296449d8690422a94c"
+      "bytes": 7966,
+      "sha256": "a10ff31a47fe28a9afe01fe1fc255eb4a81d06e3c1166e54e024429aa79dc0ca"
     },
     {
       "path": "TEST_RESULTS.txt",
-      "bytes": 34146,
-      "sha256": "0d4b7e4ab6a583f0bcc717680e156aa7c0d4b70693c2808a4e1904269b329948"
+      "bytes": 36060,
+      "sha256": "7a28171fc68530e1389147640665ec4248fe6534a64efdab6bd19f7b9568e17e"
     },
     {
       "path": "RECOVERY_CONTRACT.md",
@@ -81,12 +81,12 @@
     {
       "path": "SERIES_TRANSITION_CONTRACT.md",
       "bytes": 14145,
-      "sha256": "1330ecd7fdb803843a4eeb4af4c199f220a8465ceeb68d71122e9325be65b4d2"
+      "sha256": "40f802cf4e71c067f7377c8934e835e222702ee88a5267095ce1e6a7b1a9cd88"
     },
     {
       "path": "README.md",
-      "bytes": 7316,
-      "sha256": "72eb2d299369c1bce9e50e4c62be570297881f70555b336232748e7d0798a282"
+      "bytes": 8563,
+      "sha256": "5fe9ae28331e183c68d56efc7a631cbb2dba536a40e81cfa8e2fc7e7c5727ebf"
     },
     {
       "path": "verify_release.py",
@@ -259,9 +259,34 @@
       "sha256": "4cc68d3895943ea9a59e0e73f17f6b9d02d02c9d95d1c55c8546852a225bdebd"
     },
     {
+      "path": "examples/held-reminder.raw.json",
+      "bytes": 17900,
+      "sha256": "b58094421ff8adcc53273e2babb9a16cf8939edc5cd65880c53efaacfd84e466"
+    },
+    {
+      "path": "examples/held-reminder.normalized.json",
+      "bytes": 20200,
+      "sha256": "42d307db718a9232cb6b63cee2a70fcae5fd447bdbc11258f9f078a6aba45669"
+    },
+    {
+      "path": "examples/held-reminder.plan.json",
+      "bytes": 44329,
+      "sha256": "0a47f72138d1a4f6dc134b40c809eece52c35bec21173aae9eb330f31c2161bd"
+    },
+    {
       "path": "examples/managed-revalidate.input.json",
       "bytes": 15503,
       "sha256": "7ed0ada0e3129909d9fc4e48cf48c95c1236ee8234d2f57a33505352981611a7"
+    },
+    {
+      "path": "examples/held-reminder-preflight.input.json",
+      "bytes": 25390,
+      "sha256": "ea58f4416628e6133246f6ab13fdaa25d3a8a457cc64da9883cdb8fcd43a3974"
+    },
+    {
+      "path": "examples/held-reminder-revalidate.input.json",
+      "bytes": 26761,
+      "sha256": "3002d18bbd06d45451e8b0484f099ecbfa5b9f53ff847c43b4de05c2c7e7b3b9"
     },
     {
       "path": "examples/past-cancelled-preflight.input.json",

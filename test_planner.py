@@ -1252,12 +1252,12 @@ class ManagedCoverageTests(unittest.TestCase):
         self.no_create(data, "ledger_destination_ids_require_explicit_detail_reads")
 
     def test_damaged_out_of_window_tracked_mirror_blocks_new_create(self):
-        for field, value in (("description", "manually erased"), ("summary", "manual title"), ("location", "manual room")):
+        for field, value in (("description", "manually erased"), ("description", "manual extra " + mirror(event("known-source"))["fields"]["description"])):
             with self.subTest(field=field):
                 data = self.known_and_new()
                 data["calendars"][1]["listing"]["events"] = []
                 next(r for r in data["details"]["responses"] if r["event_id"] == "mirror-1")["event"]["fields"][field] = value
-                self.no_create(data, "tracked_destination_missing_or_manually_changed")
+                self.no_create(data, "tracked_destination_missing_or_identity_changed")
 
     def test_retired_destination_requires_explicit_known_id_terminal_read(self):
         data = self.known_and_new()
@@ -2702,7 +2702,7 @@ class SeriesTransitionTests(unittest.TestCase):
         self.blocked(attach_series_certificate(data, cert))
 
     def test_manual_mirror_title_marker_time_location_attendees_and_extra_fields_block(self):
-        for change in ("title", "marker", "time", "location", "attendees", "extra"):
+        for change in ("title", "marker", "time", "location", "attendees", "extra", "reminders"):
             data = series_split_batch()
             target = data["calendars"][1]["listing"]["events"][0]
             if change == "title":
@@ -2715,6 +2715,8 @@ class SeriesTransitionTests(unittest.TestCase):
                 target["fields"]["location"] = "manual"
             elif change == "attendees":
                 target["fields"]["attendees"] = [{"email": "guest@example.invalid", "is_self": False, "response_status": "accepted"}]
+            elif change == "reminders":
+                target["fields"]["reminders"] = {"useDefault": False, "overrides": [{"method": "popup", "minutes": 5}]}
             else:
                 target["fields"]["other"]["observed"]["color_id"] = "manual"
             data["details"]["responses"][1]["event"] = deepcopy(target)
@@ -3071,6 +3073,180 @@ class EndedCancellationTests(unittest.TestCase):
         fresh = fresh_for(action)
         fresh["state_generation"] = data["state"]["generation"]
         self.assertFalse(p.revalidate_action(action, fresh)["allowed"])
+
+
+def held_content_batch(out_of_window=False):
+    source = event("synthetic-known-source", "2026-10-01T10:00:00Z", "2026-10-01T11:00:00Z") if out_of_window else event("synthetic-known-source")
+    target = mirror(source, A, "synthetic-edited-mirror")
+    data = serialized(managed(projection(batch([*([] if out_of_window else [source]), event("synthetic-new-alpha")],
+        [*([] if out_of_window else [target]), event("synthetic-new-beta")], [registry(source, target)],
+        responses=[found(A, source), found(B, target)]))))
+    edit_held_mirror(data, lambda item: item["fields"].update(
+        reminders={"useDefault": False, "overrides": [{"method": "popup", "minutes": 5}]}))
+    return data
+
+
+def edit_held_mirror(data, edit):
+    for calendar in data["calendars"]:
+        for collection in [calendar["listing"], *calendar["marker_searches"]]:
+            for item in collection["events"]:
+                if item["id"] == "synthetic-edited-mirror":
+                    edit(item)
+    for response in data["details"]["responses"]:
+        if response["event_id"] == "synthetic-edited-mirror" and response["event"] is not None:
+            edit(response["event"])
+
+
+class ManagedContentIsolationTests(unittest.TestCase):
+    def assert_isolated(self, data):
+        before = deepcopy(data)
+        result = p.plan(data)
+        self.assertEqual(result["status"], "review_required")
+        self.assertEqual(result["counts"], {"create": 2, "update": 0, "delete": 0, "noop": 0, "conflict": 1}, result)
+        held = next(action for action in result["actions"] if action["op"] == "conflict")
+        self.assertEqual(held["reason"], "destination_manual_non_time_edit")
+        self.assertEqual(held["destination"]["event_id"], "synthetic-edited-mirror")
+        self.assertIsNone(held["desired"])
+        self.assertEqual({action["source"]["event_id"] for action in writes(result)},
+                         {"synthetic-new-alpha", "synthetic-new-beta"})
+        for action in writes(result):
+            self.assertEqual(action["op"], "create")
+            self.assertTrue(p.preflight_action(action, preflight_fresh(action))["ready_to_prepare"])
+            self.assertTrue(p.revalidate_action(action, claimed_fresh(action))["allowed"])
+            self.assertFalse(p.revalidate_action(held, claimed_fresh(action))["allowed"])
+        self.assertEqual(data, before)
+        return result
+
+    def assert_global_hold(self, data):
+        result = p.plan(data)
+        self.assertEqual(result["counts"]["create"], 0, result)
+        self.assertGreater(result["counts"]["conflict"], 0)
+        return result
+
+    def test_popup_five_minutes_holds_only_edited_mirror_and_allows_two_unrelated_creates(self):
+        data = held_content_batch()
+        result = self.assert_isolated(data)
+        baseline = data["state"]["mappings"][0]["verified_destination"]
+        self.assertEqual(baseline["fields"]["reminders"]["overrides"], [])
+        held = next(action for action in result["actions"] if action["op"] == "conflict")
+        self.assertEqual(held["destination"]["event"]["fields"]["reminders"]["overrides"], [{"method": "popup", "minutes": 5}])
+
+    def test_other_protected_content_remains_local_and_never_adopted_or_overwritten(self):
+        fields = {"summary": "manual title", "location": "manual room", "visibility": "public", "transparency": "transparent",
+                  "attendees": [{"email": "guest@example.invalid", "is_self": False, "response_status": "accepted"}],
+                  "other": {"observed": {"color_id": "manual"}, "unobserved_provider_fields": True}}
+        for name, value in fields.items():
+            data = held_content_batch()
+            edit_held_mirror(data, lambda item: item["fields"].update({name: deepcopy(value), "reminders": {"useDefault": False, "overrides": []}}))
+            with self.subTest(field=name):
+                self.assert_isolated(data)
+
+    def test_intact_ascii_normalized_marker_retains_identity_with_edited_content(self):
+        data = held_content_batch()
+        edit_held_mirror(data, lambda item: item["fields"].update(description=" \t\r\n" + item["fields"]["description"] + "\v\f "))
+        self.assert_isolated(data)
+
+    def test_out_of_window_known_mirror_content_edit_is_still_isolated_by_complete_id_read(self):
+        data = held_content_batch(out_of_window=True)
+        self.assert_isolated(data)
+
+    def test_edited_mirror_is_held_even_if_its_source_is_cancelled(self):
+        data = held_content_batch()
+        data["calendars"][0]["listing"]["events"][0]["status"] = "cancelled"
+        data["details"]["responses"][0]["event"]["status"] = "cancelled"
+        self.assert_isolated(data)
+
+    def test_missing_or_terminal_registered_destination_still_blocks_all_creates(self):
+        for outcome in ("not_found", "error", "deleted", "cancelled"):
+            data = held_content_batch()
+            data["calendars"][1]["listing"]["events"] = [item for item in data["calendars"][1]["listing"]["events"]
+                                                           if item["id"] != "synthetic-edited-mirror"]
+            data["details"]["responses"][1] = terminal(B, "synthetic-edited-mirror", outcome)
+            self.assert_global_hold(data)
+
+    def test_damaged_foreign_extra_and_unicode_marker_text_remain_global_identity_blockers(self):
+        for change in ("erased", "suffix", "unicode", "foreign", "uppercase"):
+            data = held_content_batch()
+            def edit(item):
+                marker = item["fields"]["description"]
+                item["fields"]["description"] = {"erased": "manual", "suffix": marker + " manual",
+                    "unicode": marker + "\u00a0", "foreign": marker.replace(NAMESPACE, "f" * 32), "uppercase": marker.upper()}[change]
+            edit_held_mirror(data, edit)
+            self.assert_global_hold(data)
+
+    def test_changed_liveness_or_recurring_identity_remains_global(self):
+        for change in ("cancelled", "tentative", "recurring", "self_response"):
+            data = held_content_batch()
+            def edit(item):
+                if change in {"cancelled", "tentative"}:
+                    item["status"] = change
+                elif change == "recurring":
+                    item.update(recurring_event_id="synthetic-new-series", original_start_time=item["start"]["dateTime"])
+                else:
+                    item["fields"]["attendees"] = [{"email": B, "is_self": True, "response_status": "accepted"}]
+                    item["self_response"] = "accepted"
+            edit_held_mirror(data, edit)
+            self.assert_global_hold(data)
+
+    def test_duplicate_unknown_or_suspect_owned_marker_keeps_global_inventory_hold(self):
+        for change in ("duplicate", "unknown", "suspect"):
+            data = held_content_batch()
+            extra = deepcopy(data["details"]["responses"][1]["event"])
+            extra["id"] = "synthetic-extra-owned"
+            if change == "unknown":
+                extra["fields"]["description"] = p.marker_for(CONFIG, A, "untracked-source", None, B)
+            elif change == "suspect":
+                extra["fields"]["description"] += " manual"
+            data["details"]["requested"].append(p.ref(B, extra["id"]))
+            data["details"]["responses"].append(found(B, extra))
+            self.assert_global_hold(data)
+
+    def test_incomplete_reads_history_state_and_unknown_attempts_are_not_content_conflicts(self):
+        for change in ("pages", "details", "missing_id", "ledger", "missing_issued", "state", "baseline", "ledger_destination",
+                       "history", "prepared", "attempt_started", "uncertain"):
+            data = held_content_batch()
+            if change == "pages":
+                data["calendars"][1]["listing"]["next_page_token"] = "unread"
+            elif change == "details":
+                data["details"]["complete"] = False
+            elif change == "missing_id":
+                data["details"]["responses"].pop()
+            elif change == "ledger":
+                data["managed_context"]["ledger"]["complete"] = False
+            elif change == "missing_issued":
+                data["managed_context"]["ledger"].update(issued=[], operations=[])
+            elif change == "state":
+                data["state"]["status"] = "uncertain"
+            elif change == "baseline":
+                data["state"]["mappings"][0]["verified_destination"] = deepcopy(data["details"]["responses"][1]["event"])
+            elif change == "ledger_destination":
+                data["managed_context"]["ledger"]["issued"][0]["destination_ids"] = ["wrong-id"]
+            elif change == "history":
+                data["managed_context"]["ledger"]["operations"][0]["status"] = "verified_no_write"
+            else:
+                data["managed_context"]["ledger"]["operations"].append({"operation_id": "synthetic-pending",
+                    "marker": data["state"]["mappings"][0]["marker"], "status": change, "action_id": "synthetic-other-action"})
+            self.assert_global_hold(data)
+
+    def test_indexed_search_incompleteness_still_blocks_its_create_despite_content_isolation(self):
+        data = held_content_batch()
+        for calendar in data["calendars"]:
+            for search in calendar["marker_searches"]:
+                search["queries"][0]["complete"] = False
+        self.assert_global_hold(data)
+
+    def test_any_later_change_to_held_content_invalidates_create_guard_until_replanned(self):
+        action = writes(p.plan(held_content_batch()))[0]
+        for preflight in (True, False):
+            fresh = preflight_fresh(action) if preflight else claimed_fresh(action)
+            inventory = fresh["marker_inventory"]
+            for observation in inventory["tracked_destination_observations"] + inventory["observed_marker_events"]:
+                if observation["event_id"] == "synthetic-edited-mirror":
+                    observation["event"]["fields"]["reminders"]["overrides"][0]["minutes"] = 10
+            result = p.preflight_action(action, fresh) if preflight else p.revalidate_action(action, fresh)
+            self.assertFalse(result["allowed"])
+            self.assertFalse(result.get("ready_to_prepare", False))
+            self.assertEqual(result["reason"], "marker_inventory_snapshot_mismatch")
 
 
 if __name__ == "__main__":

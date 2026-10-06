@@ -1,6 +1,6 @@
 # Portable calendar synchronization planner and adapter
 
-Adapter **1.3.1** pins planner **1.4.1**. Python 3.10+ standard library, with IANA
+Adapter **1.3.2** pins planner **1.4.2**. Python 3.10+ standard library, with IANA
 timezone data available to `zoneinfo` for all-day events and series review. Linux normally supplies
 this data; other runtimes may provide it through `PYTHONTZPATH`. Missing timezone
 data fails closed. No credentials, authentication implementation, network client,
@@ -27,6 +27,8 @@ python3 planner.py --revalidate examples/recovery-refresh-revalidate.input.json
 python3 planner.py --revalidate-series examples/series-revalidate.input.json
 python3 planner.py --preflight examples/past-cancelled-preflight.input.json
 python3 planner.py --revalidate examples/past-cancelled-revalidate.input.json
+python3 planner.py --preflight examples/held-reminder-preflight.input.json
+python3 planner.py --revalidate examples/held-reminder-revalidate.input.json
 ```
 
 `verify_release.py` verifies every manifest hash and the pinned planner, runs the
@@ -43,6 +45,22 @@ exits 0 only with `state_write_allowed:true`; it always prohibits Calendar calls
 required JSON result before proceeding.** Neither a ready plan nor successful
 preflight permits a Calendar call. Bootstrap and conflicts require their documented
 resolution. Replan after each durable state/ledger change.
+
+A registered mirror's manually edited reminder, title, location or other protected
+content now holds that item while unrelated managed creates can proceed if their
+full evidence passes. The edited event and saved baseline stay unchanged. Its exact
+ID, unique whole-description marker and non-recurring confirmed identity must still
+match verified state and issued history. Missing destinations, damaged/duplicate
+markers, unknown attempts and incomplete observations continue to block creation.
+
+The `held-reminder` example returns two creates plus one held
+`destination_manual_non_time_edit` conflict. Its overall status remains
+`review_required` (planner CLI exit 1). Handle this outcome explicitly: never execute
+conflict/noop rows, never treat exit 1 as blanket approval, and independently gate
+each eligible action through current reads, preflight and final revalidation.
+Changed content on the held mirror after planning still invalidates an old action's
+full inventory fingerprint and requires replanning. Recurrence-series certificates
+continue to require canonical, unchanged mirrors.
 
 Confirmed cancellation or deletion of a known source now releases its unchanged
 registered mirror even after the mirror ends. Each source must be re-read by exact

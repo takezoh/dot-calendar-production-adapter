@@ -63,3 +63,8 @@
 !/examples/past-deleted.plan.json
 !/examples/past-cancelled-preflight.input.json
 !/examples/past-cancelled-revalidate.input.json
+!/examples/held-reminder.raw.json
+!/examples/held-reminder.normalized.json
+!/examples/held-reminder.plan.json
+!/examples/held-reminder-preflight.input.json
+!/examples/held-reminder-revalidate.input.json
