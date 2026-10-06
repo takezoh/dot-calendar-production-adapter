@@ -34,7 +34,9 @@ def main():
             if completed.returncode not in (0, 1, 2):
                 raise ValueError("CLI failed: " + completed.stderr)
             output = json.loads(completed.stdout)
-            if "ready_to_prepare" in output:
+            if "state_write_allowed" in output:
+                code = 0 if output["state_write_allowed"] else 2
+            elif "ready_to_prepare" in output:
                 code = 0 if output["ready_to_prepare"] else 2
             elif "allowed" in output:
                 code = 0 if output["allowed"] else 2
@@ -51,10 +53,13 @@ def main():
             if plan != json.loads(path.with_name(path.name.replace(".raw.json", ".plan.json")).read_text(encoding="utf-8")):
                 raise ValueError("plan_example_mismatch")
         for path in sorted((root / "examples").glob("*.input.json")):
-            mode = "--preflight" if "preflight" in path.name else "--revalidate"
+            mode = "--revalidate-series" if "series-revalidate" in path.name else "--preflight" if "preflight" in path.name else "--revalidate"
             output = run("planner.py", [mode, path])
-            if output.get("ready_to_prepare" if mode == "--preflight" else "allowed") is not True:
+            success_key = "state_write_allowed" if mode == "--revalidate-series" else "ready_to_prepare" if mode == "--preflight" else "allowed"
+            if output.get(success_key) is not True:
                 raise ValueError("guard_example_not_ready")
+            if mode == "--revalidate-series" and (output.get("allowed") is not False or output.get("calendar_call_allowed") is not False):
+                raise ValueError("series_guard_must_prohibit_calendar_calls")
     print(json.dumps({"status": "passed", "tests_passed": result.testsRun,
         "cli_invocations": calls, "manifest_files_verified": len(manifest["files"]),
         "planner_pin_verified": True, "network_or_calendar_calls": 0}, indent=2))

@@ -1,7 +1,7 @@
 # Portable calendar synchronization planner and adapter
 
-Adapter **1.2.2** pins planner **1.3.2**. Python 3.10+ standard library, with IANA
-timezone data available to `zoneinfo` for all-day events. Linux normally supplies
+Adapter **1.3.0** pins planner **1.4.0**. Python 3.10+ standard library, with IANA
+timezone data available to `zoneinfo` for all-day events and series review. Linux normally supplies
 this data; other runtimes may provide it through `PYTHONTZPATH`. Missing timezone
 data fails closed. No credentials, authentication implementation, network client,
 local daemon or calendar executor are included.
@@ -24,6 +24,7 @@ python3 planner.py --preflight examples/recovery-preflight.input.json
 python3 planner.py --revalidate examples/recovery-revalidate.input.json
 python3 planner.py --preflight examples/recovery-refresh-preflight.input.json
 python3 planner.py --revalidate examples/recovery-refresh-revalidate.input.json
+python3 planner.py --revalidate-series examples/series-revalidate.input.json
 ```
 
 `verify_release.py` verifies every manifest hash and the pinned planner, runs the
@@ -31,10 +32,12 @@ complete synthetic suite, and executes every packaged example from a separate
 temporary working directory. It makes no network or Calendar calls. Example
 certificates are synthetic and must never be reused as evidence for real data.
 
-Planner exit codes: 0 ready/bootstrap-ready, 1 review required, 2 blocked. Adapter
+Planner exit codes: 0 ready/bootstrap-ready/series-rebind-ready, 1 review required, 2 blocked. Adapter
 exit 0 means normalized input is valid; exit 2 blocks. Preflight exits 0 only with
 `ready_to_prepare:true`, while `allowed:false` always remains false. Final
-revalidation exits 0 only with `allowed:true`. **Gate every command exit and
+Calendar revalidation exits 0 only with `allowed:true`. The separate series guard
+exits 0 only with `state_write_allowed:true`; it always prohibits Calendar calls.
+**Gate every command exit and
 required JSON result before proceeding.** Neither a ready plan nor successful
 preflight permits a Calendar call. Bootstrap and conflicts require their documented
 resolution. Replan after each durable state/ledger change.
@@ -53,6 +56,9 @@ resolution. Replan after each durable state/ledger change.
 - [RECOVERY_CONTRACT.md](RECOVERY_CONTRACT.md): zero-call execution evidence,
   single-use recovery, compact append-only refresh of unused certificates, scoped
   observation hashes and command/preflight gates.
+- [SERIES_TRANSITION_CONTRACT.md](SERIES_TRANSITION_CONTRACT.md): reviewed finite
+  weekly splits with stable occurrence IDs, full instance pages and unchanged
+  mirrors; audited state-baseline replacement only, with a separate fresh guard.
 
 An empty search never proves an uncertain write failed. Indexed searches cannot
 detect an unknown manually obscured out-of-window copy. Pure JSON guards cannot
@@ -63,8 +69,9 @@ when the provider exposes no conditional writes.
 
 The standalone `planner.py` also accepts already-normalized JSON. Public pure APIs
 are `production_adapter.adapt(raw)`, `planner.plan(data)`,
-`planner.preflight_action(action,fresh)`, `planner.revalidate_action(action,fresh)`
-and `planner.recovery_observation_fingerprint(data)`. Production cutover and actual
+`planner.preflight_action(action,fresh)`, `planner.revalidate_action(action,fresh)`,
+`planner.revalidate_series_rebind(proposal,fresh)` and
+`planner.recovery_observation_fingerprint(data)`. Production cutover and actual
 Calendar operations are external responsibilities.
 
 For new recovery approvals use `recovery_observation_fingerprint(data, marker)`
@@ -74,7 +81,8 @@ the target. The one-argument legacy algorithm remains unchanged. Refresh a stale
 UNUSED certificate by appending its compact ID/hash-linked successor; never copy
 large historical snapshots or refresh a consumed certificate. Close/drain the old
 admission first. See RECOVERY_CONTRACT.md for the mandatory root audit and exact
-record shape. Original recurring-identity conflict rules are unchanged.
+record shape. Series identity changes remain conflicts unless the explicit narrow
+state-only review contract passes. New/old iCalUID equality is not required.
 
 GitHub is the distribution source: clone this repository and pin the verified
 commit. Distribution ZIPs and Library ZIPs are unnecessary. After source/tests

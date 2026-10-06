@@ -2315,5 +2315,392 @@ class PreflightTests(unittest.TestCase):
         self.assertFalse(json.loads(output.getvalue())["ready_to_prepare"])
 
 
+def series_split_batch(count=3):
+    old_id, new_id = "synthetic-old-master", "synthetic-new-master"
+    old_uid, new_uid = "old-series@example.invalid", "new-series@example.invalid"
+    sources, targets, mappings = [], [], []
+    for index in range(count):
+        begin = (p.instant("2026-10-07T09:00:00Z") + timedelta(days=7 * index)).astimezone(
+            p.ZoneInfo("Asia/Tokyo")).isoformat()
+        end = (p.instant(begin) + timedelta(hours=1)).astimezone(p.ZoneInfo("Asia/Tokyo")).isoformat()
+        before = event("stable-instance-" + str(index), begin, end)
+        before.update(recurring_event_id=old_id, original_start_time=begin)
+        before["fields"]["other"]["i_cal_uid"] = old_uid
+        target = mirror(before, event_id="stable-mirror-" + str(index))
+        mappings.append(registry(before, target))
+        after = deepcopy(before)
+        after["recurring_event_id"] = new_id
+        after["fields"]["other"]["i_cal_uid"] = new_uid
+        sources.append(after)
+        targets.append(target)
+    data = serialized(managed(projection(batch(sources, targets, mappings))))
+    organizer = {"email": A, "is_self": True}
+    old = {"calendar_id": A, "event_id": old_id, "status": "confirmed", "organizer": deepcopy(organizer),
+        "created": "2026-09-01T00:00:00Z", "updated": "2026-10-06T10:00:00Z",
+        "start": "2026-09-23T18:00:00+09:00", "end": "2026-09-23T19:00:00+09:00", "time_zone": "Asia/Tokyo",
+        "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=WE;UNTIL=20261007T085959Z"], "i_cal_uid": old_uid}
+    new = deepcopy(old)
+    new.update(event_id=new_id, created="2026-10-06T10:01:00Z", updated="2026-10-06T10:01:00Z",
+               start="2026-10-07T18:00:00+09:00", end="2026-10-07T19:00:00+09:00",
+               recurrence=["RRULE:FREQ=WEEKLY;BYDAY=WE;COUNT=" + str(count)], i_cal_uid=new_uid)
+    old_rows = [{"calendar_id": A, "event_id": "before-split-" + str(index), "recurring_event_id": old_id,
+        "original_start_time": begin, "status": "confirmed", "start": begin,
+        "end": (p.instant(begin) + timedelta(hours=1)).astimezone(p.ZoneInfo("Asia/Tokyo")).isoformat(),
+        "organizer": deepcopy(organizer), "i_cal_uid": old_uid}
+        for index, begin in enumerate(("2026-09-23T18:00:00+09:00", "2026-09-30T18:00:00+09:00"))]
+    new_rows = [{"calendar_id": A, "event_id": source["id"], "recurring_event_id": new_id,
+        "original_start_time": source["original_start_time"], "status": "confirmed", "start": source["start"]["dateTime"],
+        "end": source["end"]["dateTime"], "organizer": deepcopy(organizer), "i_cal_uid": new_uid} for source in sources]
+    def collection(master_id, rows):
+        boundary = max(1, len(rows) // 2)
+        pages = [{"request_page_token": None, "response": {"events": rows[:boundary], "next_page_token": "synthetic-next-page"}},
+                 {"request_page_token": "synthetic-next-page", "response": {"events": rows[boundary:], "next_page_token": None}}]
+        return {"calendar_id": A, "master_id": master_id, "show_deleted": True, "time_min": None, "time_max": None,
+                "complete": True, "pages": pages}
+    certificate = {"version": 1, "kind": "following_events_split", "transition_id": "synthetic-reviewed-split",
+        "config_fingerprint": p.config_fingerprint(CONFIG), "state_generation": data["state"]["generation"],
+        "source_calendar_id": A, "split_original_start_time": new["start"], "old_master": old, "new_master": new,
+        "old_instances": collection(old_id, old_rows), "new_instances": collection(new_id, new_rows), "occurrences": [],
+        "review": {"status": "approved", "connector": "google_calendar_direct", "evidence_reference": "synthetic-readonly-split-audit",
+            "evidence_sha256": p.digest("synthetic-full-master-instance-and-mirror-readbacks"), "readonly_evidence_verified": True,
+            "previous_writers_drained": True, "admission_token": data["managed_context"]["single_writer"]["token"],
+            "timestamp_relation": "new_created_equals_updated"}}
+    return attach_series_certificate(data, certificate)
+
+
+def attach_series_certificate(data, certificate):
+    data, certificate = deepcopy(data), deepcopy(certificate)
+    data.pop("series_transitions", None)
+    observer = p.Planner(data)
+    observer.validate()
+    certificate["occurrences"] = []
+    for key, mapping in sorted(observer.mappings.items()):
+        if mapping["verified_source"]["recurring_event_id"] != certificate["old_master"]["event_id"]:
+            continue
+        destination = observer.source_snapshot(p.pair_ref(observer.config, mapping["destination"]))
+        certificate["occurrences"].append({"source_event_id": key[1], "original_start_time": mapping["source"]["original_start_time"],
+            "marker": mapping["marker"], "destination": deepcopy(mapping["destination"]), "mapping_fingerprint": p.digest(mapping),
+            "source_fingerprint": p.digest(observer.source_snapshot(key)), "destination_fingerprint": p.digest(destination)})
+    data["series_transitions"] = [certificate]
+    return data
+
+
+def series_fresh(data):
+    return {"data": deepcopy(data), "reread_certificate": {key: True for key in (
+        "complete", "immediately_before_state_write", "source_and_destination_ids", "masters_and_instance_pages",
+        "state_and_ledger", "single_writer")}}
+
+
+class SeriesTransitionTests(unittest.TestCase):
+    def blocked(self, data):
+        result = p.plan(data)
+        self.assertEqual(writes(result), [], result)
+        self.assertEqual(result.get("series_rebinds", []), [], result)
+        self.assertIn(result["status"], {"blocked", "review_required"})
+        return result
+
+    def test_reviewed_thirteen_instance_split_only_rebinds_verified_source_baselines(self):
+        data = series_split_batch(13)
+        original = deepcopy(data)
+        result = p.plan(data)
+        self.assertEqual(result["status"], "series_rebind_ready", result)
+        self.assertEqual(result["counts"], {"create": 0, "update": 0, "delete": 0, "noop": 13, "conflict": 0})
+        self.assertFalse(result["calendar_call_allowed"])
+        proposal = result["series_rebinds"][0]
+        self.assertEqual(len(proposal["replacements"]), 13)
+        before = {m["marker"]: m for m in data["state"]["mappings"]}
+        for after in proposal["replacements"]:
+            old = before[after["marker"]]
+            self.assertEqual({k: v for k, v in after.items() if k != "verified_source"},
+                             {k: v for k, v in old.items() if k != "verified_source"})
+            self.assertEqual(after["verified_source"]["recurring_event_id"], "synthetic-new-master")
+            self.assertEqual(after["marker"], p.marker_for(CONFIG, A, after["source"]["event_id"], after["source"]["original_start_time"], B))
+            self.assertNotEqual(after["verified_source"]["fields"]["other"]["observed"]["i_cal_uid"],
+                                old["verified_source"]["fields"]["other"]["observed"]["i_cal_uid"])
+        self.assertEqual(data, original)
+
+    def test_without_reviewed_certificate_series_id_change_still_conflicts(self):
+        data = series_split_batch()
+        del data["series_transitions"]
+        result = self.blocked(data)
+        self.assertTrue(all(a["reason"] == "source_series_identity_changed" for a in result["actions"]))
+
+    def test_state_only_guard_cannot_authorize_calendar_or_accept_mutation_guard(self):
+        data = series_split_batch()
+        proposal = p.plan(data)["series_rebinds"][0]
+        checked = p.revalidate_series_rebind(proposal, series_fresh(data))
+        self.assertTrue(checked["state_write_allowed"], checked)
+        self.assertFalse(checked["allowed"])
+        self.assertFalse(checked["calendar_call_allowed"])
+        self.assertFalse(p.revalidate_action(proposal, {})["allowed"])
+
+    def test_idempotent_after_state_only_adoption_preserves_ledger_and_mirrors(self):
+        data = series_split_batch()
+        ledger = deepcopy(data["managed_context"]["ledger"])
+        result = p.plan(data)
+        data["state"]["mappings"] = result["series_rebinds"][0]["replacements"]
+        data["state"]["generation"] += "-rebound"
+        del data["series_transitions"]
+        after = p.plan(data)
+        self.assertEqual(after["counts"], {"create": 0, "update": 0, "delete": 0, "noop": 3, "conflict": 0})
+        self.assertEqual(data["managed_context"]["ledger"], ledger)
+
+    def test_partial_or_unreviewed_certificate_and_unverified_state_block(self):
+        for path in ("review", "scope", "state", "config", "source_calendar", "writer", "audit_hash", "timestamp"):
+            data = series_split_batch()
+            cert = data["series_transitions"][0]
+            if path == "review":
+                cert["review"]["readonly_evidence_verified"] = False
+            elif path == "scope":
+                cert["review"]["connector"] = "unverified_export"
+            elif path == "state":
+                data["state"]["status"] = "uncertain"
+            elif path == "config":
+                cert["config_fingerprint"] = "f" * 64
+            elif path == "source_calendar":
+                cert["source_calendar_id"] = "third@example.invalid"
+            elif path == "writer":
+                cert["review"]["admission_token"] += "-wrong"
+            elif path == "audit_hash":
+                cert["review"]["evidence_sha256"] = "bad"
+            else:
+                cert["new_master"]["updated"] = "2026-10-06T10:02:00Z"
+            with self.subTest(path=path):
+                self.blocked(data)
+
+    def test_every_certificate_top_level_field_is_required(self):
+        for key in series_split_batch()["series_transitions"][0]:
+            data = series_split_batch()
+            del data["series_transitions"][0][key]
+            self.blocked(data)
+
+    def test_self_ownership_must_match_verified_calendar_identities(self):
+        for role in ("old_master", "new_master", "old_instances", "new_instances"):
+            for change in ("self", "email"):
+                data = series_split_batch()
+                value = data["series_transitions"][0][role]
+                if "pages" in value:
+                    value = value["pages"][0]["response"]["events"][0]
+                value["organizer"]["is_self" if change == "self" else "email"] = False if change == "self" else "not-owner@example.invalid"
+                self.blocked(data)
+
+    def test_all_pages_tokens_show_deleted_and_unbounded_requests_are_required(self):
+        for role in ("old_instances", "new_instances"):
+            for change in ("incomplete", "deleted", "bounded", "unread", "token", "empty", "extra_page"):
+                data = series_split_batch()
+                collection = data["series_transitions"][0][role]
+                if change == "incomplete":
+                    collection["complete"] = False
+                elif change == "deleted":
+                    collection["show_deleted"] = False
+                elif change == "bounded":
+                    collection["time_min"] = RUN
+                elif change == "unread":
+                    collection["pages"].pop()
+                elif change == "token":
+                    collection["pages"][1]["request_page_token"] = "wrong-page"
+                elif change == "empty":
+                    collection["pages"] = []
+                else:
+                    collection["pages"].append(deepcopy(collection["pages"][-1]))
+                with self.subTest(role=role, change=change):
+                    self.blocked(data)
+
+    def test_cancelled_duplicates_missing_and_multiple_candidates_are_conflicts(self):
+        for role in ("old_instances", "new_instances"):
+            for change in ("cancelled", "duplicate", "alias", "missing", "master", "uid"):
+                data = series_split_batch()
+                rows = data["series_transitions"][0][role]["pages"][0]["response"]["events"]
+                if change == "cancelled":
+                    rows[0]["status"] = "cancelled"
+                elif change in {"duplicate", "alias"}:
+                    rows.append(deepcopy(rows[0]))
+                    if change == "alias":
+                        rows[-1]["event_id"] += "-alias"
+                elif change == "missing":
+                    rows.pop()
+                elif change == "master":
+                    rows[0]["recurring_event_id"] = "wrong-master"
+                else:
+                    rows[0]["i_cal_uid"] = "wrong-uid@example.invalid"
+                self.blocked(data)
+
+    def test_truncation_boundary_schedule_and_supported_rule_are_verified(self):
+        changes = (("old_master", "recurrence", ["RRULE:FREQ=WEEKLY;UNTIL=20261007T090000Z"]),
+                   ("new_master", "recurrence", ["RRULE:FREQ=DAILY;COUNT=3"]),
+                   ("new_master", "recurrence", ["RRULE:FREQ=WEEKLY"]),
+                   ("new_master", "recurrence", ["RRULE:FREQ=WEEKLY;BYDAY=WE;COUNT=2"]),
+                   ("new_master", "end", "2026-10-07T20:00:00+09:00"),
+                   ("new_master", "time_zone", "Etc/UTC"),
+                   ("new_master", "start", "2026-10-14T18:00:00+09:00"),
+                   ("new_master", "start", "2026-10-07"))
+        for role, field, value in changes:
+            data = series_split_batch()
+            data["series_transitions"][0][role][field] = value
+            self.blocked(data)
+
+    def test_raw_original_identity_must_be_byte_identical_not_just_same_instant(self):
+        data = series_split_batch()
+        current = data["calendars"][0]["listing"]["events"][0]
+        current["original_start_time"] = "2026-10-07T09:00:00Z"
+        data["details"]["responses"][0]["event"] = deepcopy(current)
+        cert = data["series_transitions"][0]
+        cert["new_instances"]["pages"][0]["response"]["events"][0]["original_start_time"] = current["original_start_time"]
+        data = attach_series_certificate(data, cert)
+        self.blocked(data)
+
+    def test_changed_current_times_never_trigger_calendar_update_from_this_mode(self):
+        data = series_split_batch()
+        current = data["calendars"][0]["listing"]["events"][0]
+        current["start"]["dateTime"] = "2026-10-07T17:00:00+09:00"
+        data["details"]["responses"][0]["event"] = deepcopy(current)
+        cert = data["series_transitions"][0]
+        cert["new_instances"]["pages"][0]["response"]["events"][0]["start"] = current["start"]["dateTime"]
+        self.blocked(attach_series_certificate(data, cert))
+
+    def test_manual_mirror_title_marker_time_location_attendees_and_extra_fields_block(self):
+        for change in ("title", "marker", "time", "location", "attendees", "extra"):
+            data = series_split_batch()
+            target = data["calendars"][1]["listing"]["events"][0]
+            if change == "title":
+                target["fields"]["summary"] = "manual"
+            elif change == "marker":
+                target["fields"]["description"] += " manual"
+            elif change == "time":
+                target["start"]["dateTime"] = "2026-10-07T17:00:00+09:00"
+            elif change == "location":
+                target["fields"]["location"] = "manual"
+            elif change == "attendees":
+                target["fields"]["attendees"] = [{"email": "guest@example.invalid", "is_self": False, "response_status": "accepted"}]
+            else:
+                target["fields"]["other"]["observed"]["color_id"] = "manual"
+            data["details"]["responses"][1]["event"] = deepcopy(target)
+            self.blocked(attach_series_certificate(data, data["series_transitions"][0]))
+
+    def test_mirror_duplicate_or_missing_destination_blocks_whole_proposal(self):
+        data = series_split_batch()
+        extra = deepcopy(data["calendars"][1]["listing"]["events"][0])
+        extra["id"] = "another-mirror-id"
+        data["calendars"][1]["listing"]["events"].append(extra)
+        self.blocked(data)
+        data = series_split_batch()
+        data["calendars"][1]["listing"]["events"].pop(0)
+        data["details"]["responses"][1] = terminal(B, "stable-mirror-0", "not_found")
+        self.blocked(data)
+
+    def test_full_occurrence_set_and_source_ids_are_required(self):
+        for change in ("missing", "duplicate", "wrong_source", "wrong_destination", "marker", "fingerprint"):
+            data = series_split_batch()
+            rows = data["series_transitions"][0]["occurrences"]
+            if change == "missing":
+                rows.pop()
+            elif change == "duplicate":
+                rows[-1] = deepcopy(rows[0])
+            elif change == "wrong_source":
+                rows[0]["source_event_id"] = "not-registered"
+            elif change == "wrong_destination":
+                rows[0]["destination"]["event_id"] = "not-owned"
+            elif change == "marker":
+                rows[0]["marker"] = rows[1]["marker"]
+            else:
+                rows[0]["source_fingerprint"] = "f" * 64
+            self.blocked(data)
+
+    def test_foreign_calendar_in_master_or_page_cannot_rebind(self):
+        for role in ("old_master", "new_master", "old_instances", "new_instances"):
+            data = series_split_batch()
+            data["series_transitions"][0][role]["calendar_id"] = B
+            self.blocked(data)
+
+    def test_missing_or_unmapped_ledger_entry_cannot_be_adopted(self):
+        data = series_split_batch()
+        data["managed_context"]["ledger"]["issued"][0]["disposition"] = "unresolved"
+        self.blocked(data)
+
+    def test_old_instance_page_cannot_contradict_known_id_tombstone(self):
+        data = series_split_batch()
+        row = data["series_transitions"][0]["old_instances"]["pages"][0]["response"]["events"][0]
+        data["details"]["requested"].append(p.ref(A, row["event_id"]))
+        data["details"]["responses"].append(terminal(A, row["event_id"], "cancelled"))
+        self.blocked(data)
+
+    def test_already_moved_exception_retains_raw_original_and_current_times(self):
+        data = series_split_batch()
+        begin, end = "2026-10-08T18:00:00+09:00", "2026-10-08T19:00:00+09:00"
+        for value in (data["calendars"][0]["listing"]["events"][0], data["calendars"][1]["listing"]["events"][0],
+                      data["details"]["responses"][0]["event"], data["details"]["responses"][1]["event"],
+                      data["state"]["mappings"][0]["verified_source"], data["state"]["mappings"][0]["verified_destination"]):
+            value["start"]["dateTime"], value["end"]["dateTime"] = begin, end
+        cert = data["series_transitions"][0]
+        cert["new_instances"]["pages"][0]["response"]["events"][0].update(start=begin, end=end)
+        data = attach_series_certificate(data, cert)
+        result = p.plan(data)
+        self.assertEqual(result["status"], "series_rebind_ready", result)
+        self.assertEqual(writes(result), [])
+        self.assertEqual({m["marker"] for m in result["series_rebinds"][0]["replacements"]},
+                         {m["marker"] for m in data["state"]["mappings"]})
+
+    def test_new_master_until_rule_and_independent_page_order_are_supported(self):
+        data = series_split_batch()
+        cert = data["series_transitions"][0]
+        cert["new_master"]["recurrence"] = ["RRULE:FREQ=WEEKLY;BYDAY=WE;UNTIL=20261021T090000Z"]
+        cert["new_instances"]["pages"][1]["response"]["events"].reverse()
+        result = p.plan(data)
+        self.assertEqual(result["status"], "series_rebind_ready", result)
+
+    def test_duplicate_or_overlapping_transition_certificates_fail_closed(self):
+        for same_id in (True, False):
+            data = series_split_batch()
+            duplicate = deepcopy(data["series_transitions"][0])
+            if not same_id:
+                duplicate["transition_id"] += "-second"
+            data["series_transitions"].append(duplicate)
+            self.blocked(data)
+
+    def test_unrelated_calendar_mutations_are_withheld_in_series_state_review_mode(self):
+        data = series_split_batch()
+        extra = projection(batch([event("unrelated-busy")]))
+        data["calendars"][0]["listing"]["events"].extend(extra["calendars"][0]["listing"]["events"])
+        data["calendars"][1]["marker_searches"].extend(extra["calendars"][1]["marker_searches"])
+        result = self.blocked(data)
+        self.assertIn("calendar_mutations_deferred_during_series_transition_review", [a["reason"] for a in result["actions"]])
+
+    def test_revalidation_checks_fresh_master_pages_state_ledger_and_all_reread_flags(self):
+        data = series_split_batch()
+        proposal = p.plan(data)["series_rebinds"][0]
+        for key in series_fresh(data)["reread_certificate"]:
+            fresh = series_fresh(data)
+            fresh["reread_certificate"][key] = False
+            self.assertFalse(p.revalidate_series_rebind(proposal, fresh)["state_write_allowed"])
+        for change in ("state", "ledger", "master", "page", "proposal"):
+            fresh, candidate = series_fresh(data), deepcopy(proposal)
+            if change == "state":
+                fresh["data"]["state"]["generation"] += "-changed"
+            elif change == "ledger":
+                fresh["data"]["managed_context"]["ledger"]["generation"] += "-changed"
+            elif change == "master":
+                fresh["data"]["series_transitions"][0]["new_master"]["updated"] = "2026-10-06T10:02:00Z"
+            elif change == "page":
+                fresh["data"]["series_transitions"][0]["new_instances"]["pages"].pop()
+            else:
+                candidate["replacements"][0]["marker"] = "tampered"
+                candidate["id"] = p.digest({k: v for k, v in candidate.items() if k != "id"})
+            self.assertFalse(p.revalidate_series_rebind(candidate, fresh)["state_write_allowed"])
+
+    def test_cli_series_guard_distinguishes_state_permission_from_calendar_permission(self):
+        data = series_split_batch()
+        request = {"proposal": p.plan(data)["series_rebinds"][0], "fresh": series_fresh(data)}
+        output = io.StringIO()
+        with patch("sys.stdin", io.StringIO(json.dumps(request))), patch("sys.stdout", output):
+            self.assertEqual(p.main(["--revalidate-series"]), 0)
+        result = json.loads(output.getvalue())
+        self.assertTrue(result["state_write_allowed"])
+        self.assertFalse(result["allowed"])
+        output = io.StringIO()
+        with patch("sys.stdin", io.StringIO("bad-json")), patch("sys.stdout", output):
+            self.assertEqual(p.main(["--revalidate-series"]), 2)
+        self.assertFalse(json.loads(output.getvalue())["state_write_allowed"])
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

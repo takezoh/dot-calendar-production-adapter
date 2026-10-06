@@ -63,10 +63,12 @@ def main():
     datasets["recovery"] = recovery_raw
     refreshed_raw, _ = fixtures.RecoveryAdapterTests().raw_supersession()
     datasets["recovery-refresh"] = refreshed_raw
+    series_raw, series_normalized = fixtures.series_split_raw()
+    datasets["series-split"] = series_raw
     names = ["production_adapter.py", "test_production_adapter.py", "ADAPTER_CONTRACT.md", "planner.py",
              "test_planner.py", "MANAGED_COVERAGE.md", "PLANNER_CONTRACT.md", "RUNTIME_CONFIG.md", "config.example.json",
              "config.template.json", "distribution_check.py", "build_adapter_release.py", "TEST_RESULTS.txt",
-             "RECOVERY_CONTRACT.md", "README.md", "verify_release.py"]
+             "RECOVERY_CONTRACT.md", "SERIES_TRANSITION_CONTRACT.md", "README.md", "verify_release.py"]
     for name, raw in datasets.items():
         normalized = adapter.adapt(raw)
         for kind, value in (("raw", raw), ("normalized", normalized), ("plan", planner.plan(normalized))):
@@ -76,6 +78,11 @@ def main():
     action = fixtures.writes(planner.plan(adapter.adapt(managed)))[0]
     filename = "examples/managed-revalidate.input.json"
     (root / filename).write_text(json.dumps({"action": action, "fresh": test_planner.claimed_fresh(action)},
+        ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8", newline="\n")
+    names.append(filename)
+    filename = "examples/series-revalidate.input.json"
+    proposal = planner.plan(series_normalized)["series_rebinds"][0]
+    (root / filename).write_text(json.dumps({"proposal": proposal, "fresh": test_planner.series_fresh(series_normalized)},
         ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8", newline="\n")
     names.append(filename)
     for prefix, raw in (("recovery", recovery_raw), ("recovery-refresh", refreshed_raw)):

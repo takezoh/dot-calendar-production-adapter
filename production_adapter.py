@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline raw Google Calendar projection -> pinned planner 1.3.2 schema 3.
+"""Offline raw Google Calendar projection -> pinned planner 1.4.0 schema 3.
 
 No authentication, network, calendar writes, state writes, clock reads or daemon.
 All read/completeness/timezone certificates must come from the authenticated caller.
@@ -22,9 +22,9 @@ if str(SCRIPT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIRECTORY))
 import planner
 
-ADAPTER_VERSION = "1.2.2"
+ADAPTER_VERSION = "1.3.0"
 RAW_SCHEMA_VERSION = 2
-PINNED_PLANNER_SHA256 = '315c348362e156e77a014273377806e4a257c99356e7f67b8307ab21c6819de1'
+PINNED_PLANNER_SHA256 = 'c44f02c12686407ba92342fc8465d29bc2e936c0d91eed319324e8884acde42d'
 CAPABILITIES = {"concurrency_mode": "snapshot_reread", "provider_etag": False,
                 "conditional_writes": False, "field_profile": "google_calendar_projection"}
 DETAIL_FIELDS = {"guests_can_modify", "locked", "id", "summary", "status", "organizer",
@@ -56,7 +56,7 @@ def object_keys(value, keys, code):
 def verify_planner():
     require(hashlib.sha256(Path(planner.__file__).read_bytes()).hexdigest() == PINNED_PLANNER_SHA256,
             "pinned_planner_bytes_mismatch")
-    require(planner.RELEASE == "1.3.2" and planner.SCHEMA_VERSION == 3, "pinned_planner_version_mismatch")
+    require(planner.RELEASE == "1.4.0" and planner.SCHEMA_VERSION == 3, "pinned_planner_version_mismatch")
 
 
 def nonempty_string(value):
@@ -321,7 +321,8 @@ class Adapter:
         verify_planner()
         raw = self.raw
         envelope_keys = {"adapter_schema_version", "config", "run_started_at", "calendars", "state"}
-        require(isinstance(raw, dict) and set(raw) in (envelope_keys, envelope_keys | {"managed_context"}), "invalid_raw_envelope")
+        require(isinstance(raw, dict) and envelope_keys <= set(raw) <= envelope_keys | {"managed_context", "series_transitions"},
+                "invalid_raw_envelope")
         require(type(raw["adapter_schema_version"]) is int and raw["adapter_schema_version"] == RAW_SCHEMA_VERSION,
                 "unsupported_raw_schema")
         self.config = planner.validate_config(raw["config"])
@@ -393,6 +394,8 @@ class Adapter:
                               "responses": [self.responses[key] for key in sorted(self.responses)]}, "state": self.state()}
         if "managed_context" in raw:
             result["managed_context"] = deepcopy(raw["managed_context"])
+        if "series_transitions" in raw:
+            result["series_transitions"] = deepcopy(raw["series_transitions"])
         # Validate the pinned contract without mutating the calendars or registry.
         planner.Planner(result).validate()
         return result

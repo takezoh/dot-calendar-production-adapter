@@ -799,5 +799,66 @@ class RecoveryAdapterTests(unittest.TestCase):
             a.adapt(raw)
 
 
+def series_split_raw(count=3):
+    import test_planner as fixtures
+    proof_data = fixtures.series_split_batch(count)
+    cert = proof_data["series_transitions"][0]
+    sources, mirrors, mappings = [], [], []
+    for stored in proof_data["state"]["mappings"]:
+        before = detail(stored["source"]["event_id"], stored["verified_source"]["start"]["dateTime"],
+                        stored["verified_source"]["end"]["dateTime"])
+        before.update(recurring_event_id=cert["old_master"]["event_id"], original_start_time=stored["source"]["original_start_time"],
+                      i_cal_uid=cert["old_master"]["i_cal_uid"], organizer={"email": A, "is_self": True})
+        destination = target(before, event_id=stored["destination"]["event_id"])
+        destination.pop("i_cal_uid")
+        mappings.append(mapping(before, destination))
+        current = deepcopy(before)
+        current.update(recurring_event_id=cert["new_master"]["event_id"], i_cal_uid=cert["new_master"]["i_cal_uid"])
+        sources.append(current)
+        mirrors.append(destination)
+    raw = raw_input(sources, mirrors, mappings)
+    normalized = fixtures.serialized(fixtures.managed(a.adapt(raw)))
+    cert["state_generation"] = normalized["state"]["generation"]
+    normalized = fixtures.attach_series_certificate(normalized, cert)
+    raw["managed_context"] = deepcopy(normalized["managed_context"])
+    raw["series_transitions"] = deepcopy(normalized["series_transitions"])
+    return raw, normalized
+
+
+class SeriesTransitionAdapterTests(unittest.TestCase):
+    def test_direct_projection_with_external_reviewed_certificate_has_no_calendar_mutations(self):
+        import test_planner as fixtures
+        raw, expected = series_split_raw(13)
+        original = deepcopy(raw)
+        normalized = a.adapt(raw)
+        self.assertEqual(normalized, expected)
+        result = p.plan(normalized)
+        self.assertEqual(result["status"], "series_rebind_ready", result)
+        self.assertEqual(writes(result), [])
+        self.assertEqual(len(result["series_rebinds"][0]["replacements"]), 13)
+        self.assertTrue(p.revalidate_series_rebind(result["series_rebinds"][0], fixtures.series_fresh(normalized))["state_write_allowed"])
+        self.assertEqual(raw, original)
+
+    def test_direct_adapter_never_invents_review_page_completion_or_owner_evidence(self):
+        for missing in ("review", "pages", "owner"):
+            raw, _ = series_split_raw()
+            certificate = raw["series_transitions"][0]
+            if missing == "review":
+                del certificate["review"]["evidence_reference"]
+            elif missing == "pages":
+                certificate["new_instances"]["pages"].pop()
+            else:
+                certificate["new_master"]["organizer"]["is_self"] = False
+            with self.subTest(missing=missing), self.assertRaises(a.AdapterError):
+                a.adapt(raw)
+
+    def test_recurring_master_is_not_normalized_as_a_native_source(self):
+        raw, _ = series_split_raw()
+        event = raw["calendars"][0]["detail_batches"][0]["responses"][0]["event"]
+        event["recurrence"] = ["RRULE:FREQ=WEEKLY;COUNT=3"]
+        with self.assertRaisesRegex(a.AdapterError, "recurrence_not_expanded"):
+            a.adapt(raw)
+
+
 if __name__ == "__main__":
     unittest.main(verbosity=2)

@@ -1,8 +1,8 @@
-# Portable calendar projection adapter 1.2.2
+# Portable calendar projection adapter 1.3.0
 
 This is a reusable, standard-library Python adapter for the existing direct Google
 Calendar plugin. It converts certified raw connector observations into the exact
-schema-3 input required by **planner 1.3.2**. It reads JSON files or
+schema-3 input required by **planner 1.4.0**. It reads JSON files or
 stdin and writes JSON files or stdout. It does not authenticate, call the network,
 read calendars, mutate calendars, modify registry state, run a scheduler, read the
 system clock, or create a daemon.
@@ -59,9 +59,17 @@ nonnull fields are retained except the explicit read-only profile fields below.
   run_started_at: actual explicit-offset RFC3339 run-start string,
   calendars: [RawCalendar(A), RawCalendar(B)],
   state: VerifiedPlannerStateWrapper | LegacyBootstrapWrapper,
-  managed_context: optional explicitly audited ledger and externally enforced writer
+  managed_context: optional explicitly audited ledger and externally enforced writer,
+  series_transitions: optional reviewed state-only split certificates
 }
 ```
+
+The optional `series_transitions` value is copied verbatim into planner input and
+fully validated by the pinned planner. Its supplemental master/instance projections
+must come from actual externally verified direct-plugin reads. They are not ordinary
+expanded source events. The adapter does not invent missing evidence or approvals.
+See [SERIES_TRANSITION_CONTRACT.md](SERIES_TRANSITION_CONTRACT.md) for exact records,
+supported weekly scope, page completion, ownership, audit and state-only guard.
 
 A and B are the two exact IDs in the validated RuntimeConfig allowlist. No personal calendar, third calendar or `primary`
 alias is accepted. The caller must choose the corresponding authenticated account

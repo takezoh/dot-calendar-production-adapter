@@ -16,6 +16,7 @@
 !/build_adapter_release.py
 !/TEST_RESULTS.txt
 !/RECOVERY_CONTRACT.md
+!/SERIES_TRANSITION_CONTRACT.md
 !/README.md
 !/verify_release.py
 !/MANIFEST.json
@@ -50,3 +51,7 @@
 !/examples/recovery-refresh.plan.json
 !/examples/recovery-refresh-preflight.input.json
 !/examples/recovery-refresh-revalidate.input.json
+!/examples/series-split.raw.json
+!/examples/series-split.normalized.json
+!/examples/series-split.plan.json
+!/examples/series-revalidate.input.json

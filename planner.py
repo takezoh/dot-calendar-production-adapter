@@ -14,9 +14,10 @@ import hashlib
 import json
 import re
 import sys
+from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 SCHEMA_VERSION = 3
-RELEASE = "1.3.2"
+RELEASE = "1.4.0"
 RECOVERY_ITEM_SCOPE = "recovery_item_v1"
 UNIVERSAL_SCOPE = "exact_marker_all_destinations"
 MANAGED_SCOPE = "managed_state_window_and_indexed_search"
@@ -582,6 +583,104 @@ def found_snapshot(calendar_id, event):
     return {"calendar_id": calendar_id, "event_id": event["id"], "outcome": "found", "event": deepcopy(event), "evidence": None}
 
 
+def series_owner(config, calendar_id, organizer):
+    require(isinstance(organizer, dict) and set(organizer) == {"email", "is_self"}
+            and organizer["is_self"] is True and nonempty(organizer["email"]), "series_self_ownership_not_verified")
+    identities = next(c["self_identities"] for c in config["calendars"] if c["calendar_id"] == calendar_id)
+    require(organizer["email"].casefold() in {email.casefold() for email in identities}, "series_owner_outside_verified_config")
+
+
+def series_master(config, calendar_id, value):
+    """Narrow timed weekly projection; full authenticated evidence stays external."""
+    keys = {"calendar_id", "event_id", "status", "organizer", "created", "updated", "start", "end",
+            "time_zone", "recurrence", "i_cal_uid"}
+    require(isinstance(value, dict) and set(value) == keys and value["calendar_id"] == calendar_id
+            and nonempty(value["event_id"]) and value["status"] == "confirmed" and nonempty(value["i_cal_uid"]),
+            "invalid_series_master_projection")
+    series_owner(config, calendar_id, value["organizer"])
+    require(instant(value["created"]) <= instant(value["updated"]), "invalid_series_master_timestamps")
+    require(instant(value["start"]) < instant(value["end"]) and nonempty(value["time_zone"]), "invalid_series_master_times")
+    try:
+        zone = ZoneInfo(value["time_zone"])
+    except (ZoneInfoNotFoundError, OSError) as exc:
+        raise ContractError("series_transition_timezone_unavailable") from exc
+    local_start = instant(value["start"]).astimezone(zone)
+    lines = value["recurrence"]
+    require(isinstance(lines, list) and len(lines) == 1 and isinstance(lines[0], str) and lines[0].startswith("RRULE:"),
+            "series_transition_requires_one_weekly_rrule")
+    rule = {}
+    for part in lines[0][6:].split(";"):
+        pair = part.split("=")
+        require(len(pair) == 2 and pair[0] not in rule and nonempty(pair[1]), "invalid_series_rrule")
+        rule[pair[0]] = pair[1]
+    weekday = ("MO", "TU", "WE", "TH", "FR", "SA", "SU")[local_start.weekday()]
+    require(set(rule) <= {"FREQ", "INTERVAL", "BYDAY", "WKST", "UNTIL", "COUNT"}
+            and rule.get("FREQ") == "WEEKLY" and rule.get("INTERVAL", "1") == "1"
+            and rule.get("BYDAY", weekday) == weekday and rule.get("WKST", "MO") in {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
+            and ("UNTIL" in rule) != ("COUNT" in rule), "unsupported_series_transition_rrule")
+    if "UNTIL" in rule:
+        require(re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", rule["UNTIL"]), "series_until_requires_utc")
+        try:
+            limit = datetime.strptime(rule["UNTIL"], "%Y%m%dT%H%M%SZ").replace(tzinfo=timezone.utc)
+        except ValueError as exc:
+            raise ContractError("invalid_series_until") from exc
+        require(limit >= instant(value["start"]), "series_until_precedes_master_start")
+    else:
+        require(re.fullmatch(r"[1-9][0-9]*", rule["COUNT"]), "invalid_series_count")
+        limit = None
+    return {"zone": zone, "local_start": local_start, "duration": instant(value["end"]) - instant(value["start"]),
+            "until": limit, "count": int(rule["COUNT"]) if "COUNT" in rule else None,
+            "pattern": {"frequency": "WEEKLY", "weekday": weekday, "interval": 1, "week_start": rule.get("WKST", "MO")}}
+
+
+def series_instance_pages(config, calendar_id, master, schedule, collection):
+    keys = {"calendar_id", "master_id", "show_deleted", "time_min", "time_max", "complete", "pages"}
+    require(isinstance(collection, dict) and set(collection) == keys and collection["calendar_id"] == calendar_id
+            and collection["master_id"] == master["event_id"] and collection["show_deleted"] is True
+            and collection["time_min"] is None and collection["time_max"] is None and collection["complete"] is True,
+            "series_instances_require_complete_unbounded_show_deleted_reads")
+    require(isinstance(collection["pages"], list) and bool(collection["pages"]), "series_instance_pages_missing")
+    expected, tokens, rows, originals = None, set(), {}, set()
+    for index, page in enumerate(collection["pages"]):
+        require(isinstance(page, dict) and set(page) == {"request_page_token", "response"}
+                and page["request_page_token"] == expected and (index == 0 or nonempty(expected)), "series_page_chain_gap")
+        response = page["response"]
+        require(isinstance(response, dict) and set(response) == {"events", "next_page_token"}
+                and isinstance(response["events"], list), "invalid_series_page_response")
+        for row in response["events"]:
+            require(isinstance(row, dict) and set(row) == {"calendar_id", "event_id", "recurring_event_id", "original_start_time",
+                    "status", "start", "end", "organizer", "i_cal_uid"}, "incomplete_series_instance_projection")
+            require(row["calendar_id"] == calendar_id and row["recurring_event_id"] == master["event_id"]
+                    and nonempty(row["event_id"]) and row["event_id"] not in rows and row["status"] == "confirmed"
+                    and row["i_cal_uid"] == master["i_cal_uid"], "series_instance_identity_or_status_conflict")
+            series_owner(config, calendar_id, row["organizer"])
+            nominal = instant(row["original_start_time"])
+            local = nominal.astimezone(schedule["zone"])
+            require(nominal not in originals, "duplicate_series_original_occurrence")
+            require(local.weekday() == schedule["local_start"].weekday()
+                    and local.timetz().replace(tzinfo=None) == schedule["local_start"].timetz().replace(tzinfo=None)
+                    and nominal >= instant(master["start"]), "series_instance_off_nominal_schedule")
+            require(instant(row["start"]) < instant(row["end"]), "invalid_series_instance_times")
+            require(schedule["until"] is None or nominal <= schedule["until"], "series_instance_after_until")
+            rows[row["event_id"]] = row
+            originals.add(nominal)
+        expected = response["next_page_token"]
+        require(expected is None or nonempty(expected) and expected not in tokens, "series_page_token_loop")
+        if expected is not None:
+            tokens.add(expected)
+    require(expected is None, "series_instance_pages_incomplete")
+    require(bool(rows) and (schedule["count"] is None or len(rows) == schedule["count"]), "series_instance_count_mismatch")
+    # For this narrow single-weekday rule, an exhausted list must have every slot.
+    local_dates = sorted(instant(r["original_start_time"]).astimezone(schedule["zone"]).date() for r in rows.values())
+    require(local_dates[0] == schedule["local_start"].date()
+            and all(right - left == timedelta(days=7) for left, right in zip(local_dates, local_dates[1:])),
+            "series_instance_nominal_gap")
+    if schedule["until"] is not None:
+        last_local = max(originals).astimezone(schedule["zone"])
+        require((last_local + timedelta(days=7)).astimezone(timezone.utc) > schedule["until"], "series_instances_omit_terminal_slot")
+    return rows
+
+
 EXECUTOR_REQUIREMENTS = [
     "Use only the existing authenticated Google Calendar plugin and the two explicit IDs and verified self identities in RuntimeConfig.",
     "Admit one root-coordinated serialized execution after paused/drained cutover, or use an actual external atomic-claim backend; owner fields and read/write readback are not locks.",
@@ -616,6 +715,8 @@ class Planner:
         self.candidates = []
         self.bootstrap_mappings = []
         self.handled = set()
+        self.series_rebinds = []
+        self.series_keys = set()
 
     def observe(self, calendar, event):
         validate_event(event, self.capabilities, config=self.config, calendar_id=calendar)
@@ -626,7 +727,8 @@ class Planner:
     def validate(self):
         data = self.data
         top_keys = {"schema_version", "config", "run_started_at", "calendars", "details", "state", "connector_capabilities"}
-        require(isinstance(data, dict) and set(data) in (top_keys, top_keys | {"managed_context"}), "invalid_top_level_contract")
+        require(isinstance(data, dict) and top_keys <= set(data) <= top_keys | {"managed_context", "series_transitions"},
+                "invalid_top_level_contract")
         require(type(data["schema_version"]) is int and data["schema_version"] == SCHEMA_VERSION, "unsupported_schema")
         self.config = validate_config(data["config"])
         self.config_fingerprint = digest(self.config)
@@ -765,6 +867,135 @@ class Planner:
                 text = event["fields"]["description"].translate(ASCII_SPACE)
                 for suspect in set(re.findall(own_marker(self.config).pattern, text, re.IGNORECASE)):
                     self.suspects.setdefault((key[0], suspect.lower()), []).append(key)
+        if "series_transitions" in data:
+            require(isinstance(data["series_transitions"], list) and bool(data["series_transitions"]), "series_transition_certificates_required")
+            ids = set()
+            for certificate in data["series_transitions"]:
+                self.validate_series_transition(certificate)
+                require(certificate["transition_id"] not in ids, "duplicate_series_transition_id")
+                ids.add(certificate["transition_id"])
+
+    def validate_series_transition(self, certificate):
+        """Validate the whole split as one state-only adoption, never a Calendar edit."""
+        keys = {"version", "kind", "transition_id", "config_fingerprint", "state_generation", "source_calendar_id",
+                "split_original_start_time", "old_master", "new_master", "old_instances", "new_instances", "occurrences", "review"}
+        require(isinstance(certificate, dict) and set(certificate) == keys and type(certificate["version"]) is int
+                and certificate["version"] == 1 and certificate["kind"] == "following_events_split"
+                and nonempty(certificate["transition_id"]), "invalid_series_transition_certificate")
+        state = self.data["state"]
+        require(state["status"] == "verified" and state["mappings_complete"] is True
+                and certificate["state_generation"] == state["generation"]
+                and certificate["config_fingerprint"] == self.config_fingerprint, "series_transition_state_or_config_mismatch")
+        cid = certificate["source_calendar_id"]
+        require(cid in calendar_ids(self.config), "series_transition_calendar_not_allowed")
+        require(self.managed is not None and self.managed["single_writer"].get("mode") == "serialized_runner",
+                "series_transition_requires_root_serialization")
+        review = certificate["review"]
+        require(isinstance(review, dict) and set(review) == {"status", "connector", "evidence_reference", "evidence_sha256",
+                "readonly_evidence_verified", "previous_writers_drained", "admission_token", "timestamp_relation"}
+                and review["status"] == "approved" and review["connector"] == "google_calendar_direct"
+                and nonempty(review["evidence_reference"]) and isinstance(review["evidence_sha256"], str)
+                and re.fullmatch(r"[0-9a-f]{64}", review["evidence_sha256"])
+                and review["readonly_evidence_verified"] is True and review["previous_writers_drained"] is True
+                and review["admission_token"] == self.managed["single_writer"]["token"], "reviewed_series_transition_evidence_required")
+        old, new = certificate["old_master"], certificate["new_master"]
+        old_schedule, new_schedule = series_master(self.config, cid, old), series_master(self.config, cid, new)
+        require(old["event_id"] != new["event_id"] and (cid, old["event_id"]) not in self.observed
+                and (cid, new["event_id"]) not in self.observed, "series_masters_must_be_distinct_and_separate_from_expanded_events")
+        require(review["timestamp_relation"] == "new_created_equals_updated"
+                and instant(new["created"]) == instant(new["updated"])
+                and instant(old["updated"]) <= instant(new["created"]), "series_creation_timestamp_evidence_mismatch")
+        boundary = instant(certificate["split_original_start_time"])
+        require(old_schedule["until"] is not None and old_schedule["until"] < boundary
+                and instant(old["start"]) < boundary == instant(new["start"]), "series_split_boundary_not_proven")
+        require(old["time_zone"] == new["time_zone"] and old_schedule["pattern"] == new_schedule["pattern"]
+                and old_schedule["duration"] == new_schedule["duration"]
+                and old_schedule["local_start"].timetz().replace(tzinfo=None) == new_schedule["local_start"].timetz().replace(tzinfo=None),
+                "series_split_schedule_changed")
+        old_rows = series_instance_pages(self.config, cid, old, old_schedule, certificate["old_instances"])
+        new_rows = series_instance_pages(self.config, cid, new, new_schedule, certificate["new_instances"])
+        for row in [*old_rows.values(), *new_rows.values()]:
+            known_key = cid, row["event_id"]
+            if known_key in self.details:
+                require(self.details[known_key]["outcome"] == "found", "series_page_contradicts_known_id_detail")
+            known = self.observed.get(known_key)
+            if known is not None:
+                require(known["status"] == row["status"] and known["recurring_event_id"] == row["recurring_event_id"]
+                        and known["original_start_time"] == row["original_start_time"]
+                        and known["start"].get("dateTime") == row["start"] and known["end"].get("dateTime") == row["end"],
+                        "series_page_contradicts_known_id_detail")
+        require(not set(old_rows) & set(new_rows)
+                and all(instant(r["original_start_time"]) < boundary for r in old_rows.values())
+                and all(instant(r["original_start_time"]) >= boundary for r in new_rows.values()), "series_split_instance_overlap")
+        last_old = max(instant(r["original_start_time"]) for r in old_rows.values()).astimezone(old_schedule["zone"])
+        require((last_old + timedelta(days=7)).astimezone(timezone.utc) == boundary, "series_split_nominal_boundary_gap")
+        affected = {key for key, mapping in self.mappings.items() if key[0] == cid
+                    and mapping["verified_source"]["recurring_event_id"] == old["event_id"]
+                    and instant(mapping["source"]["original_start_time"]) >= boundary}
+        require(affected and affected == {(cid, eid) for eid in new_rows} and not affected & self.series_keys,
+                "series_transition_requires_exact_registered_occurrence_set")
+        rows = certificate["occurrences"]
+        require(isinstance(rows, list) and len(rows) == len(affected), "series_occurrence_certificates_incomplete")
+        certified, replacements, snapshots = set(), [], []
+        for item in rows:
+            require(isinstance(item, dict) and set(item) == {"source_event_id", "original_start_time", "marker", "destination",
+                    "mapping_fingerprint", "source_fingerprint", "destination_fingerprint"}, "invalid_series_occurrence_certificate")
+            key = cid, item["source_event_id"]
+            require(key in affected and key not in certified and key not in self.ambiguous_sources, "series_occurrence_ambiguous")
+            certified.add(key)
+            mapping, row = self.mappings[key], new_rows[key[1]]
+            source = self.source_snapshot(key)
+            dkey = pair_ref(self.config, mapping["destination"])
+            destination = self.source_snapshot(dkey)
+            current, target, baseline = source.get("event"), destination.get("event"), mapping["verified_source"]
+            require(source["outcome"] == "found" and destination["outcome"] == "found"
+                    and current is not None and target is not None, "series_rebind_requires_current_known_id_details")
+            require(item["mapping_fingerprint"] == digest(mapping) and item["source_fingerprint"] == digest(source)
+                    and item["destination_fingerprint"] == digest(destination), "series_occurrence_snapshot_mismatch")
+            require(item["original_start_time"] == row["original_start_time"] == current["original_start_time"]
+                    == baseline["original_start_time"] == mapping["source"]["original_start_time"]
+                    and current["recurring_event_id"] == new["event_id"] and item["destination"] == mapping["destination"]
+                    and item["marker"] == mapping["marker"], "series_stable_occurrence_identity_changed")
+            require(current["status"] == baseline["status"] == "confirmed" and current["self_response"] == baseline["self_response"]
+                    and eligibility(current, self.start, self.end) == "busy_in_window"
+                    and description_kind(self.config, current["fields"]["description"])[0] == "native", "series_source_not_unchanged_busy")
+            require("dateTime" in current["start"] and row["start"] == current["start"]["dateTime"]
+                    and row["end"] == current["end"]["dateTime"]
+                    and timing(current) == timing(baseline) == timing(target) == timing(mapping["verified_destination"]),
+                    "series_rebind_requires_unchanged_source_and_mirror_times")
+            require(self.markers.get((dkey[0], mapping["marker"]), []) == [dkey]
+                    and not self.suspects.get((dkey[0], mapping["marker"]))
+                    and canonical_mirror(target, mapping["marker"], self.profile)
+                    and protected(target) == protected(mapping["verified_destination"]), "series_mirror_ownership_or_protected_fields_changed")
+            entry = self.issued.get(mapping["marker"])
+            require(entry is not None and entry["disposition"] == "mapped" and entry["destination_calendar_id"] == dkey[0]
+                    and entry["destination_ids"] == [dkey[1]]
+                    and any(op["marker"] == mapping["marker"] and op["status"] == "committed" for op in self.managed["ledger"]["operations"]),
+                    "series_rebind_requires_verified_mapped_ledger")
+            for event, uid in ((baseline, old["i_cal_uid"]), (current, new["i_cal_uid"])):
+                other = event["fields"]["other"]
+                exposed = other.get("observed", other)
+                for name in ("iCalUID", "ical_uid", "i_cal_uid"):
+                    require(name not in exposed or exposed[name] == uid, "series_ical_uid_projection_mismatch")
+            replacement = deepcopy(mapping)
+            replacement["verified_source"] = deepcopy(current)
+            replacements.append(replacement)
+            snapshots.append({"source": ref(*key), "source_fingerprint": digest(source), "destination": ref(*dkey),
+                "destination_fingerprint": digest(destination), "mapping_fingerprint": digest(mapping),
+                "marker_inventory_fingerprint": digest(self.marker_inventory(dkey[0], mapping["marker"], managed=True))})
+        proposal = {"op": "rebind_series_state", "transition_id": certificate["transition_id"],
+            "reason": "reviewed_following_events_split_with_stable_occurrences", "calendar_call_allowed": False,
+            "expected": {"config_fingerprint": self.config_fingerprint, "state_generation": state["generation"],
+                "state_fingerprint": digest(state), "managed_context_fingerprint": digest(self.managed),
+                "connector_capabilities_fingerprint": digest(self.capabilities), "certificate_fingerprint": digest(certificate),
+                "occurrences": sorted(snapshots, key=lambda row: row["source"]["event_id"])},
+            "replacements": sorted(replacements, key=lambda mapping: mapping["marker"]),
+            "audit": {"kind": "series_state_rebind", "old_master_id": old["event_id"], "new_master_id": new["event_id"],
+                "evidence_reference": review["evidence_reference"], "evidence_sha256": review["evidence_sha256"],
+                "only_mapping_verified_source_changes": True, "retain_all_marker_destination_and_operation_history": True}}
+        proposal["id"] = digest(proposal)
+        self.series_rebinds.append(proposal)
+        self.series_keys.update(affected)
 
     def source_snapshot(self, key):
         if key in self.details:
@@ -958,6 +1189,9 @@ class Planner:
             emit("conflict", "source_occurrence_identity_changed")
             return
         if event and mapping and event["recurring_event_id"] != mapping["verified_source"]["recurring_event_id"]:
+            if key in self.series_keys:
+                emit("noop", "reviewed_series_split_requires_state_rebind")
+                return
             emit("conflict", "source_series_identity_changed")
             return
         if event and event["original_start_time"] != raw_original:
@@ -1087,6 +1321,19 @@ class Planner:
                   "executor_requirements": EXECUTOR_REQUIREMENTS,
                   "counts": {op: sum(a["op"] == op for a in self.actions)
                              for op in ("create", "update", "delete", "noop", "conflict")}}
+        if "series_transitions" in self.data:
+            for action in self.actions:
+                if action["op"] in MUTATIONS:
+                    action.update(op="conflict", reason="calendar_mutations_deferred_during_series_transition_review", desired=None)
+                    action.pop("id")
+                    action["id"] = digest(action)
+            self.actions.sort(key=lambda item: item["id"])
+            conflict = any(action["op"] == "conflict" for action in self.actions)
+            result["status"] = "review_required" if conflict else "series_rebind_ready"
+            result["series_rebinds"] = [] if conflict else sorted(self.series_rebinds, key=lambda item: item["id"])
+            result["calendar_call_allowed"] = False
+            result["counts"] = {op: sum(action["op"] == op for action in self.actions)
+                                for op in ("create", "update", "delete", "noop", "conflict")}
         result["plan_id"] = digest(result)
         return result
 
@@ -1258,6 +1505,26 @@ def preflight_action(action, fresh):
     return _revalidate_action(action, fresh, preflight=True)
 
 
+def revalidate_series_rebind(proposal, fresh):
+    """Pure state-write guard. Always prohibits Calendar calls."""
+    result = {"allowed": False, "calendar_call_allowed": False, "state_write_allowed": False}
+    try:
+        require(isinstance(proposal, dict) and proposal.get("op") == "rebind_series_state"
+                and proposal.get("id") == digest({k: v for k, v in proposal.items() if k != "id"}), "invalid_series_rebind_proposal")
+        require(isinstance(fresh, dict) and set(fresh) == {"data", "reread_certificate"}, "invalid_series_rebind_fresh_contract")
+        certificate = fresh["reread_certificate"]
+        require(isinstance(certificate, dict) and set(certificate) == {"complete", "immediately_before_state_write",
+                "source_and_destination_ids", "masters_and_instance_pages", "state_and_ledger", "single_writer"}
+                and all(value is True for value in certificate.values()), "series_rebind_requires_immediate_complete_rereads")
+        current = plan(fresh["data"])
+        require(current["status"] == "series_rebind_ready" and proposal in current["series_rebinds"],
+                "series_rebind_evidence_or_state_changed")
+        result.update(state_write_allowed=True, reason="fresh_series_split_evidence_matches_state_only_proposal")
+    except (ContractError, KeyError, TypeError, ValueError, OverflowError, RecursionError) as exc:
+        result["reason"] = str(exc) if isinstance(exc, ContractError) else "malformed_series_rebind_input"
+    return result
+
+
 def unique_object(pairs):
     result = {}
     for key, value in pairs:
@@ -1278,6 +1545,7 @@ def main(argv=None):
     mode = parser.add_mutually_exclusive_group()
     mode.add_argument("--revalidate", action="store_true", help="input is {action, fresh}; run mandatory offline pre-write guard")
     mode.add_argument("--preflight", action="store_true", help="check {action, fresh} before durable preparation; never authorize a Calendar call")
+    mode.add_argument("--revalidate-series", action="store_true", help="check {proposal, fresh} for state-only series rebind; never authorize Calendar calls")
     args = parser.parse_args(argv)
     try:
         if args.input == "-":
@@ -1286,19 +1554,24 @@ def main(argv=None):
             with open(args.input, encoding="utf-8") as handle:
                 raw = handle.read()
         data = json.loads(raw, object_pairs_hook=unique_object, parse_constant=reject_constant)
-        if args.revalidate or args.preflight:
+        if args.revalidate_series:
+            require(isinstance(data, dict) and set(data) == {"proposal", "fresh"}, "invalid_series_revalidation_request")
+            result = revalidate_series_rebind(data["proposal"], data["fresh"])
+        elif args.revalidate or args.preflight:
             require(isinstance(data, dict) and set(data) == {"action", "fresh"}, "invalid_revalidation_request")
             result = (preflight_action if args.preflight else revalidate_action)(data["action"], data["fresh"])
         else:
             result = plan(data)
     except (OSError, ValueError, RecursionError):
-        result = preflight_action(None, None) if args.preflight else revalidate_action(None, None) if args.revalidate else plan(None)
+        result = revalidate_series_rebind(None, None) if args.revalidate_series else preflight_action(None, None) if args.preflight else revalidate_action(None, None) if args.revalidate else plan(None)
     serialized = json.dumps(result, ensure_ascii=False, indent=2, sort_keys=True, allow_nan=False) + "\n"
     if args.output == "-":
         sys.stdout.write(serialized)
     else:
         with open(args.output, "w", encoding="utf-8", newline="\n") as handle:
             handle.write(serialized)
+    if args.revalidate_series:
+        return 0 if result["state_write_allowed"] else 2
     if args.preflight:
         return 0 if result["ready_to_prepare"] else 2
     if args.revalidate:

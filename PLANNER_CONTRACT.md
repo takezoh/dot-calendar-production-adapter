@@ -1,4 +1,4 @@
-# Portable calendar mirror planner 1.3.2 - JSON contract v3
+# Portable calendar mirror planner 1.4.0 - JSON contract v3
 
 `planner.py` is a self-contained Python 3.10+ standard-library program. It accepts
 normalized JSON and produces a deterministic safe plan. It has no network calls,
@@ -19,13 +19,18 @@ synthetic. Real runtime config/state/journal belong outside this distribution.
 The optional evidence-bound zero-call recovery and preflight command are specified
 in [RECOVERY_CONTRACT.md](RECOVERY_CONTRACT.md). Every executor command must pass
 its exit-status and result checks before any subsequent journal or Calendar step.
+Optional `series_transitions` certificates select the dedicated state-only review
+mode in [SERIES_TRANSITION_CONTRACT.md](SERIES_TRANSITION_CONTRACT.md). It can replace
+verified source baselines after a fully proven split; it never returns Calendar
+mutations. Without a reviewed certificate, series changes remain conflicts.
 
 ## Run and transfer
 
 ```sh
 python3 -m unittest -v test_planner
-python3 planner.py examples/create.input.json -o plan.json
-python3 planner.py --revalidate examples/revalidate.input.json
+python3 planner.py examples/timed-create.normalized.json -o plan.json
+python3 planner.py --revalidate examples/managed-revalidate.input.json
+python3 planner.py --revalidate-series examples/series-revalidate.input.json
 ```
 
 Or import `plan(data)`, `revalidate_action(action, fresh)` and
@@ -33,8 +38,10 @@ Or import `plan(data)`, `revalidate_action(action, fresh)` and
 The CLI reads UTF-8 files or stdin (`-`) and writes a JSON file or stdout. Use a
 UTF-8 console for non-ASCII piping on Windows. No other writes are performed.
 Duplicate JSON keys, nonfinite numbers, malformed input and incomplete batches
-fail closed. Normal CLI exit codes: 0 ready/bootstrap_ready, 1 review_required,
+fail closed. Normal CLI exit codes: 0 ready/bootstrap_ready/series_rebind_ready, 1 review_required,
 2 blocked. Revalidation exits 0 only when allowed, otherwise 2.
+The separate series guard exits 0 only for `state_write_allowed:true`; its `allowed`
+and `calendar_call_allowed` fields always remain false.
 
 The release contains source, tests, this contract, synthetic examples, test results
 and a checksum manifest. Clone the authorized source repository at a verified
@@ -97,7 +104,9 @@ All named fields are required. Unknown envelope/record keys are rejected.
   connector_capabilities: Capabilities,
   calendars: [Calendar(A), Calendar(B)],
   details: Details,
-  state: State
+  state: State,
+  managed_context: optional context from MANAGED_COVERAGE.md,
+  series_transitions: optional certificates from SERIES_TRANSITION_CONTRACT.md
 }
 ```
 
