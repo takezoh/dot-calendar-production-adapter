@@ -1,8 +1,8 @@
-# Portable calendar projection adapter 1.2.1
+# Portable calendar projection adapter 1.2.2
 
 This is a reusable, standard-library Python adapter for the existing direct Google
 Calendar plugin. It converts certified raw connector observations into the exact
-schema-3 input required by **planner 1.3.1**. It reads JSON files or
+schema-3 input required by **planner 1.3.2**. It reads JSON files or
 stdin and writes JSON files or stdout. It does not authenticate, call the network,
 read calendars, mutate calendars, modify registry state, run a scheduler, read the
 system clock, or create a daemon.
@@ -353,7 +353,9 @@ migration, lock or authentication.
 
 RECOVERY_CONTRACT.md defines the optional durable zero-call recovery record and
 new linked attempt. The adapter preserves this supplied record without inventing
-evidence. Gate every command's exit/result; use planner --preflight before intent
+evidence. It also preserves compact ID/hash-linked supersessions of unused records
+without expanding, refreshing or rewriting their inherited evidence. Gate every
+command's exit/result; use planner --preflight before intent
 and compare fingerprints before attempt_started whenever possible. Final
 --revalidate exit 0 AND allowed:true remain mandatory before the single call.
 

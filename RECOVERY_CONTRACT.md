@@ -1,6 +1,6 @@
 # Evidence-bound recovery and command gating
 
-Planner 1.3.1 / adapter 1.2.1; schema 3 / raw schema 2 / ledger version 2.
+Planner 1.3.2 / adapter 1.2.2; schema 3 / raw schema 2 / ledger version 2.
 Existing inputs without recovery records retain their previous behavior and marker
 hashes. This extension performs no persistence or external calls.
 
@@ -53,7 +53,8 @@ process. Do not reclassify uncertain operations to make them pass this extension
 
 Keep the old operation and issued row. Append a durable recovery record to the
 optional `ledger.recoveries` array, assign a new ledger generation and verify the
-entire readback under a NEW root-serialized admission. Each record has exactly:
+entire readback under a NEW root-serialized admission. An original full record has
+the following keys; `observations_scope` is optional for backward compatibility:
 
 ```text
 {
@@ -64,7 +65,8 @@ entire readback under a NEW root-serialized admission. Each record has exactly:
   operation_fingerprint: digest(exact preserved old operation),
   prior_action: complete original create action, including its ID and snapshots,
   config_fingerprint: current canonical configuration fingerprint,
-  observations_fingerprint: recovery_observation_fingerprint(current normalized input),
+  observations_scope: "recovery_item_v1",  // omit only for the legacy whole-batch form
+  observations_fingerprint: recovery_observation_fingerprint(current normalized input, marker),
   authorized_admission_token: new root admission token,
   evidence: {
     kind: "executor_trace",
@@ -80,12 +82,12 @@ entire readback under a NEW root-serialized admission. Each record has exactly:
 }
 ```
 
-`digest` uses canonical sorted compact JSON; use the exported helper. The
-observation helper binds canonical config, run start, capabilities, both complete
-calendar observations, direct details and ownership state; it excludes the ledger
-to avoid circular approval construction. Acquire fresh observations first, compute
-this fingerprint, then append the certificate. This is a caller/root approval,
-not a certificate that this offline package can issue for real execution.
+`digest` uses canonical sorted compact JSON; use the exported helper. Scoped
+observations are specified below. The legacy record without `observations_scope`
+still uses the original one-argument `recovery_observation_fingerprint(data)` and
+its exact whole-batch/config/state algorithm. Do not rewrite a durable old record
+to switch scope; append an audited compact supersession instead. This is a
+caller/root approval, not evidence this offline program can issue for real execution.
 
 The old operation may remain `prepared` or `attempt_started`; the appended outcome
 resolves its zero-call ambiguity without overwriting history. Explicit historical
@@ -98,10 +100,11 @@ The current source must be read by known ID, remain busy/in-window, and have the
 exact original source snapshot. Destination absence and capabilities must equal
 the original snapshots. Config and state binding must match. Both current windows
 and all registered/ledger IDs must be complete; destination namespace and key
-queries must be freshly exhausted with no time limits. Any changed current batch
-or state invalidates its observations fingerprint. Window time may advance between
-the failed action and explicitly certified recovery; the fresh batch is separately
-bound. A changed source/destination is outside this narrow recovery path.
+queries must be freshly exhausted with no time limits. Changes to bound item,
+coverage, state or ledger invalidate the scoped observations fingerprint. Window
+time may advance between the failed action and explicitly certified recovery; fresh
+coverage is separately bound. A changed source/destination is outside this narrow
+recovery path even with a refreshed certificate.
 
 The issued row must be unresolved with no known destination IDs or mapping. Any
 exact/suspect destination, untracked marker or manual change stops recovery. All
@@ -124,7 +127,7 @@ operations. Do not append the issued marker a second time. Instead:
 
 The final guard reconstructs this exact change and rejects missing/changed old
 history, reused IDs, missing links or unexpected edits. A consumed record cannot
-be reopened, copied or used for another attempt. If the NEW attempt independently
+be reopened, superseded, copied or used for another attempt. If the NEW attempt independently
 fails with positively recorded zero calls, it needs a NEW trace, recovery record,
 admission, action and operation. Preserve the entire chain. Positive success still
 needs known-ID readback, verified mapping and committed ledger outcome.
@@ -135,3 +138,98 @@ detect history omitted by a caller falsely claiming completeness, or prevent rep
 of identical JSON by an executor. It never treats an empty search as proof of no
 write. Indexed-search limitations and the final read/write race remain as documented
 in MANAGED_COVERAGE.md. No authentication or additional backend is introduced.
+
+## Append-only refresh of an unused certificate
+
+An unused certificate can become stale before preparing its new attempt. A root
+may refresh its current observations without duplicating the original failure
+evidence or replaying an attempt. First close/drain the previous certificate's
+admitted execution and verify from the complete durable journal/audit that the
+certificate is **unused**, with no linked prepared/started operation, call issued,
+pending dispatch or uncertain external write. A nullable field alone does not
+prove this. The same original zero-call trace remains authoritative; no new
+certificate may change or override it.
+
+Under a new root admission, acquire complete fresh observations and read the full
+logical state and ledger. Choose a new ledger generation in the proposed input.
+Keep every prior record byte-equivalent as a JSON value. Compute
+`recovery_observation_fingerprint(proposed_input, marker)` before appending this
+exact compact record:
+
+```text
+{
+  recovery_id: NEW unique certificate ID,
+  operation_id: same originally failed operation ID,
+  marker: same marker,
+  observations_scope: "recovery_item_v1",
+  observations_fingerprint: fresh scoped fingerprint,
+  authorized_admission_token: NEW token, never previously used in this chain,
+  consumed_by_operation_id: null,
+  supersession: {
+    recovery_id: immediately previous/latest certificate ID for this operation,
+    recovery_fingerprint: digest(exact previous certificate, including null consumption),
+    reason: "refresh_current_observations",
+    audit_reference: reference to actual durable root refresh/unused-check audit,
+    audit_sha256: SHA256 of the exact audit bytes, 64 lowercase hex,
+    root_authorized: true,
+    previous_admission_closed: true,
+    certificate_unused_verified: true
+  }
+}
+```
+
+Persist and verify readback of this complete logical ledger under the new
+generation/admission. Replan and use a NEW action; all command-exit, preflight and
+final-guard gates still apply. Only the latest unsuperseded certificate is eligible.
+Do not mark older certificates consumed just to supersede them. If the latest
+certificate later funds a new attempt, only it acquires `consumed_by_operation_id`;
+all superseded records stay intact and unused forever.
+
+The chain is backward-only and linear. Missing or edited references, unknown/forward
+links, branches, duplicate IDs, cross-operation/marker links, reused admissions,
+consumed predecessors or missing root audit fields fail closed. A consumed
+certificate cannot be refreshed even if its new attempt has not called Calendar
+yet: that attempt needs its own separately proved zero-call resolution. Calls
+issued or uncertain outcomes remain outside this path. Old actions fail against
+the new ledger/admission and must never be resumed by an old runner.
+
+## Scoped observations and storage size
+
+`recovery_observation_fingerprint(data, marker)` first validates the complete input
+and resolves one directly-read source occurrence for that marker. It hashes:
+
+- Canonical config, run start and connector capabilities.
+- Complete ownership state (including its generation and verified mappings).
+- The exact target source, destination observation, occurrence ambiguity flag,
+  and the same managed marker inventory used by the final guard: all registered
+  IDs, tracked destination details, matching/suspect events, every observed owned
+  or malformed marker, and the target's exhausted namespace/key query candidates.
+- Both listing coverage certificates and exact requested/returned detail ID set.
+- The complete ledger excluding only `recoveries`, including its new generation,
+  config binding, provenance, issued rows and operations.
+
+The recovery array is excluded solely to avoid a circular fingerprint when adding
+the new record. Reference hashes preserve its prior chain; the action/guards still
+bind and compare the entire ledger including every recovery record.
+
+Arbitrary contents of an unrelated native event are not part of this item hash.
+An attachment-only change there leaves the target action and guards unchanged.
+Every event still receives full structural/consistency validation. If an event
+becomes owned/malformed, changes a relevant query candidate, affects source
+occurrence ambiguity, changes tracked ownership, or changes coverage, it is
+relevant and cannot be ignored. Target source/destination/config/ledger changes
+remain protected. Recurrent identity conflicts retain their original policy.
+
+A compact refresh contains no `prior_action`, `evidence`, config snapshot or old
+observation batch. These are inherited by immutable ID/hash references, resolved
+only in memory. Never persist expanded copies of the chain. Repeated refreshes add
+small records instead of another large snapshot; tests cover an existing ledger
+near a one-megabyte file cap. There is no deletion/truncation/migration of old
+evidence. If total legitimate history still exceeds a storage file limit, the
+external serialized runner may shard it, verify every shard's hash/completeness,
+and reconstruct the full unchanged logical JSON object before planning. Missing
+or partial shards cannot be certified complete. This package performs no storage
+I/O or shard management and does not relax any history requirements.
+
+Runnable `examples/recovery-refresh.*` files demonstrate legacy-to-compact refresh,
+preflight and one linked new attempt, using synthetic audits only.

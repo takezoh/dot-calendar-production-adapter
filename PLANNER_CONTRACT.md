@@ -1,4 +1,4 @@
-# Portable calendar mirror planner 1.3.1 - JSON contract v3
+# Portable calendar mirror planner 1.3.2 - JSON contract v3
 
 `planner.py` is a self-contained Python 3.10+ standard-library program. It accepts
 normalized JSON and produces a deterministic safe plan. It has no network calls,

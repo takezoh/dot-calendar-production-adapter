@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline raw Google Calendar projection -> pinned planner 1.3.1 schema 3.
+"""Offline raw Google Calendar projection -> pinned planner 1.3.2 schema 3.
 
 No authentication, network, calendar writes, state writes, clock reads or daemon.
 All read/completeness/timezone certificates must come from the authenticated caller.
@@ -22,9 +22,9 @@ if str(SCRIPT_DIRECTORY) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIRECTORY))
 import planner
 
-ADAPTER_VERSION = "1.2.1"
+ADAPTER_VERSION = "1.2.2"
 RAW_SCHEMA_VERSION = 2
-PINNED_PLANNER_SHA256 = '90f4520691f970738e079b808168579742a7da09b2a50af613237fd6093b08c9'
+PINNED_PLANNER_SHA256 = '315c348362e156e77a014273377806e4a257c99356e7f67b8307ab21c6819de1'
 CAPABILITIES = {"concurrency_mode": "snapshot_reread", "provider_etag": False,
                 "conditional_writes": False, "field_profile": "google_calendar_projection"}
 DETAIL_FIELDS = {"guests_can_modify", "locked", "id", "summary", "status", "organizer",
@@ -56,7 +56,7 @@ def object_keys(value, keys, code):
 def verify_planner():
     require(hashlib.sha256(Path(planner.__file__).read_bytes()).hexdigest() == PINNED_PLANNER_SHA256,
             "pinned_planner_bytes_mismatch")
-    require(planner.RELEASE == "1.3.1" and planner.SCHEMA_VERSION == 3, "pinned_planner_version_mismatch")
+    require(planner.RELEASE == "1.3.2" and planner.SCHEMA_VERSION == 3, "pinned_planner_version_mismatch")
 
 
 def nonempty_string(value):

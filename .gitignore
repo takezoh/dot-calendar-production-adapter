@@ -45,3 +45,8 @@
 !/examples/managed-revalidate.input.json
 !/examples/recovery-preflight.input.json
 !/examples/recovery-revalidate.input.json
+!/examples/recovery-refresh.raw.json
+!/examples/recovery-refresh.normalized.json
+!/examples/recovery-refresh.plan.json
+!/examples/recovery-refresh-preflight.input.json
+!/examples/recovery-refresh-revalidate.input.json

@@ -62,6 +62,8 @@ def main():
                 "all-day-dst": all_day, "legacy-bootstrap": bootstrap, "managed-create": managed}
     recovery_raw, _ = fixtures.RecoveryAdapterTests().raw_recovery()
     datasets["recovery"] = recovery_raw
+    refreshed_raw, _ = fixtures.RecoveryAdapterTests().raw_supersession()
+    datasets["recovery-refresh"] = refreshed_raw
     names = ["production_adapter.py", "test_production_adapter.py", "ADAPTER_CONTRACT.md", "planner.py",
              "test_planner.py", "MANAGED_COVERAGE.md", "PLANNER_CONTRACT.md", "RUNTIME_CONFIG.md", "config.example.json",
              "config.template.json", "distribution_check.py", "build_adapter_release.py", "TEST_RESULTS.txt",
@@ -77,12 +79,13 @@ def main():
     (root / filename).write_text(json.dumps({"action": action, "fresh": test_planner.claimed_fresh(action)},
         ensure_ascii=False, sort_keys=True, indent=2) + "\n", encoding="utf-8", newline="\n")
     names.append(filename)
-    action = fixtures.writes(planner.plan(adapter.adapt(recovery_raw)))[0]
-    for name, fresh in (("recovery-preflight", test_planner.preflight_fresh(action)), ("recovery-revalidate", test_planner.claimed_fresh(action))):
-        filename = "examples/" + name + ".input.json"
-        (root / filename).write_text(json.dumps({"action": action, "fresh": fresh}, indent=2, sort_keys=True)
-            + "\n", encoding="utf-8", newline="\n")
-        names.append(filename)
+    for prefix, raw in (("recovery", recovery_raw), ("recovery-refresh", refreshed_raw)):
+        action = fixtures.writes(planner.plan(adapter.adapt(raw)))[0]
+        for suffix, fresh in (("preflight", test_planner.preflight_fresh(action)), ("revalidate", test_planner.claimed_fresh(action))):
+            filename = "examples/" + prefix + "-" + suffix + ".input.json"
+            (root / filename).write_text(json.dumps({"action": action, "fresh": fresh}, indent=2, sort_keys=True)
+                + "\n", encoding="utf-8", newline="\n")
+            names.append(filename)
     manifest = {"release": adapter.ADAPTER_VERSION, "raw_schema_version": adapter.RAW_SCHEMA_VERSION,
                 "planner_release": planner.RELEASE, "planner_schema_version": planner.SCHEMA_VERSION,
                 "pinned_planner_sha256": adapter.PINNED_PLANNER_SHA256,

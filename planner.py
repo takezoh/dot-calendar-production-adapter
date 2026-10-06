@@ -16,7 +16,8 @@ import re
 import sys
 
 SCHEMA_VERSION = 3
-RELEASE = "1.3.1"
+RELEASE = "1.3.2"
+RECOVERY_ITEM_SCOPE = "recovery_item_v1"
 UNIVERSAL_SCOPE = "exact_marker_all_destinations"
 MANAGED_SCOPE = "managed_state_window_and_indexed_search"
 UNKNOWN = {"unobserved": True}
@@ -192,30 +193,58 @@ def validate_recoveries(config, context, issued):
     require(isinstance(recoveries, list), "invalid_recovery_history")
     operations = {op["operation_id"]: op for op in ledger["operations"]}
     positions = {op["operation_id"]: index for index, op in enumerate(ledger["operations"])}
-    by_id, resolved = {}, set()
+    by_id, resolved, latest = {}, set(), {}
     for recovery in recoveries:
-        require(isinstance(recovery, dict) and set(recovery) == {"recovery_id", "operation_id", "marker", "outcome",
+        full_keys = {"recovery_id", "operation_id", "marker", "outcome",
                 "operation_fingerprint", "prior_action", "config_fingerprint", "observations_fingerprint",
-                "authorized_admission_token", "evidence", "consumed_by_operation_id"}, "invalid_recovery_record")
+                "authorized_admission_token", "evidence", "consumed_by_operation_id"}
+        compact_keys = {"recovery_id", "operation_id", "marker", "observations_scope", "observations_fingerprint",
+                        "authorized_admission_token", "consumed_by_operation_id", "supersession"}
+        require(isinstance(recovery, dict) and set(recovery) in (full_keys, full_keys | {"observations_scope"}, compact_keys),
+                "invalid_recovery_record")
+        require("observations_scope" not in recovery or recovery["observations_scope"] == RECOVERY_ITEM_SCOPE,
+                "unknown_recovery_observations_scope")
         rid, oid, marker = recovery["recovery_id"], recovery["operation_id"], recovery["marker"]
-        require(nonempty(rid) and rid not in by_id and oid in operations and oid not in resolved, "duplicate_or_unknown_recovery_identity")
+        require(nonempty(rid) and rid not in by_id and oid in operations, "duplicate_or_unknown_recovery_identity")
+        origin = recovery
+        if "supersession" in recovery:
+            audit = recovery["supersession"]
+            require(isinstance(audit, dict) and set(audit) == {"recovery_id", "recovery_fingerprint", "reason",
+                    "audit_reference", "audit_sha256", "root_authorized", "previous_admission_closed", "certificate_unused_verified"},
+                    "invalid_recovery_supersession")
+            previous = by_id.get(audit["recovery_id"])
+            require(previous is not None and latest.get(oid) == previous["recovery_id"]
+                    and previous["operation_id"] == oid and previous["marker"] == marker,
+                    "supersession_requires_latest_same_operation_certificate")
+            require(previous["consumed_by_operation_id"] is None, "consumed_recovery_cannot_be_superseded")
+            require(audit["recovery_fingerprint"] == digest(previous), "superseded_recovery_snapshot_mismatch")
+            require(audit["reason"] == "refresh_current_observations" and nonempty(audit["audit_reference"])
+                    and isinstance(audit["audit_sha256"], str) and re.fullmatch(r"[0-9a-f]{64}", audit["audit_sha256"])
+                    and audit["root_authorized"] is True and audit["previous_admission_closed"] is True
+                    and audit["certificate_unused_verified"] is True, "audited_unused_supersession_required")
+            require(recovery["authorized_admission_token"] not in {r["authorized_admission_token"]
+                    for r in by_id.values() if r["operation_id"] == oid},
+                    "supersession_requires_new_admission")
+            origin = recovery_origin(by_id, previous)
+        else:
+            require(oid not in resolved, "duplicate_or_unknown_recovery_identity")
         op = operations[oid]
-        require(marker == op["marker"] and marker in issued and recovery["operation_fingerprint"] == digest(op), "recovery_operation_snapshot_mismatch")
+        require(marker == op["marker"] and marker in issued and origin["operation_fingerprint"] == digest(op), "recovery_operation_snapshot_mismatch")
         require(op["status"] in {"prepared", "attempt_started", "aborted_before_call", "verified_no_write"}
-                and recovery["outcome"] in {"aborted_before_call", "verified_no_write"}, "recovery_cannot_resolve_issued_or_uncertain_call")
-        require(recovery["config_fingerprint"] == config_fingerprint(config), "recovery_config_mismatch")
+                and origin["outcome"] in {"aborted_before_call", "verified_no_write"}, "recovery_cannot_resolve_issued_or_uncertain_call")
+        require(origin["config_fingerprint"] == config_fingerprint(config), "recovery_config_mismatch")
         require(isinstance(recovery["observations_fingerprint"], str) and re.fullmatch(r"[0-9a-f]{64}", recovery["observations_fingerprint"]), "invalid_recovery_observations_fingerprint")
-        prior = recovery["prior_action"]
+        prior = origin["prior_action"]
         require(isinstance(prior, dict) and prior.get("id") == op["action_id"] == digest({k: v for k, v in prior.items() if k != "id"})
                 and prior.get("op") == "create" and prior.get("marker") == marker, "recovery_prior_action_mismatch")
         expected = prior["expected"]
-        require(config_fingerprint(expected["config"]) == recovery["config_fingerprint"] == expected["state_config_fingerprint"], "recovery_prior_config_mismatch")
+        require(config_fingerprint(expected["config"]) == origin["config_fingerprint"] == expected["state_config_fingerprint"], "recovery_prior_config_mismatch")
         for name in ("config", "source", "destination", "marker_inventory", "connector_capabilities", "managed_context"):
             require(digest(expected[name]) == expected["fingerprints"][name], "recovery_prior_fingerprint_mismatch")
         require(expected["source"]["outcome"] == "found" and expected["destination"]["outcome"] == "marker_absent"
                 and expected["destination"]["event_id"] is None, "recovery_prior_action_was_not_absent_create")
         prior_writer = expected["managed_context"]["single_writer"]
-        evidence = recovery["evidence"]
+        evidence = origin["evidence"]
         require(isinstance(evidence, dict) and set(evidence) == {"kind", "trace_reference", "trace_sha256", "prior_admission_token",
                 "durable", "trace_complete", "execution_closed", "calendar_calls_issued", "call_dispatch_started", "external_write_uncertainty"},
                 "recorded_zero_call_evidence_required")
@@ -235,6 +264,7 @@ def validate_recoveries(config, context, issued):
                     and operations[consumed]["action_id"] != op["action_id"], "recovery_consumption_mismatch")
         by_id[rid] = recovery
         resolved.add(oid)
+        latest[oid] = rid
     for op in operations.values():
         if "recovery_id" in op:
             require(op["recovery_id"] in by_id and by_id[op["recovery_id"]]["consumed_by_operation_id"] == op["operation_id"], "operation_recovery_link_mismatch")
@@ -243,8 +273,43 @@ def validate_recoveries(config, context, issued):
     return by_id, resolved
 
 
-def recovery_observation_fingerprint(data):
-    """Bind approval to the complete current normalized read batch and state."""
+def recovery_origin(records, recovery):
+    """Resolve compact history references in memory without duplicating evidence."""
+    seen = set()
+    while "supersession" in recovery:
+        key = recovery["supersession"]["recovery_id"]
+        require(key not in seen and key in records, "invalid_recovery_reference_chain")
+        seen.add(key)
+        recovery = records[key]
+    return recovery
+
+
+def recovery_observation_fingerprint(data, marker=None):
+    """With marker, bind relevant item/coverage/history; one-arg legacy stays exact."""
+    if marker is not None:
+        observer = Planner(data)
+        observer.validate()  # Incomplete/contradictory inputs never get a scoped certificate.
+        require(observer.managed is not None, "scoped_recovery_requires_managed_context")
+        keys = [key for key, event in observer.observed.items()
+                if description_kind(observer.config, event["fields"]["description"])[0] == "native"
+                and marker_for(observer.config, *key, event["original_start_time"],
+                    next(cid for cid in calendar_ids(observer.config) if cid != key[0])) == marker]
+        require(len(keys) == 1, "scoped_recovery_requires_one_source_occurrence")
+        key = keys[0]
+        require(key in observer.details, "recovery_requires_current_source_by_id")
+        destination_calendar = next(cid for cid in calendar_ids(observer.config) if cid != key[0])
+        inventory = observer.marker_inventory(destination_calendar, marker, managed=True)
+        matches = observer.markers.get((destination_calendar, marker), [])
+        destination = observer.source_snapshot(matches[0]) if len(matches) == 1 else {
+            "calendar_id": destination_calendar, "event_id": None, "outcome": "marker_absent", "event": None}
+        return digest({"scope": RECOVERY_ITEM_SCOPE, "config": observer.config,
+            "run_started_at": data["run_started_at"], "connector_capabilities": observer.capabilities,
+            "state": data["state"], "source": observer.source_snapshot(key), "destination": destination,
+            "marker_inventory": inventory, "source_occurrence_ambiguous": key in observer.ambiguous_sources,
+            "coverage": {"calendars": [{"id": item["id"], "listing": {k: v for k, v in item["listing"].items() if k != "events"}}
+                for item in sorted(data["calendars"], key=lambda c: c["id"])], "details_complete": data["details"]["complete"],
+                "requested_detail_ids": [ref(*item) for item in sorted(observer.details)]},
+            "ledger": {k: v for k, v in observer.managed["ledger"].items() if k != "recoveries"}})
     return digest({"config": validate_config(data["config"]), **{key: data[key] for key in
         ("run_started_at", "connector_capabilities", "calendars", "details", "state")}})
 
@@ -253,20 +318,23 @@ def active_recovery(config, context, marker):
     """Select one unused authorization; history is never cleared or replayed."""
     issued, _ = validate_managed_context(config, context)
     records, resolved = validate_recoveries(config, context, issued)
-    candidates = [r for r in records.values() if r["marker"] == marker and r["consumed_by_operation_id"] is None]
+    superseded = {r["supersession"]["recovery_id"] for r in records.values() if "supersession" in r}
+    candidates = [r for r in records.values() if r["marker"] == marker and r["consumed_by_operation_id"] is None
+                  and r["recovery_id"] not in superseded]
     require(len(candidates) == 1, "issued_marker_requires_one_unused_zero_call_recovery")
     recovery = candidates[0]
+    origin = recovery_origin(records, recovery)
     writer = context["single_writer"]
     require(writer.get("mode") == "serialized_runner" and writer["token"] == recovery["authorized_admission_token"],
             "recovery_admission_mismatch")
     entry = issued[marker]
     require(entry["disposition"] == "unresolved" and entry["destination_ids"] == []
-            and entry["destination_calendar_id"] == recovery["prior_action"]["destination"]["calendar_id"],
+            and entry["destination_calendar_id"] == origin["prior_action"]["destination"]["calendar_id"],
             "recovery_requires_no_known_destination")
     operations = [op for op in context["ledger"]["operations"] if op["marker"] == marker]
     require(operations[-1]["operation_id"] == recovery["operation_id"]
             and all(op["operation_id"] in resolved for op in operations), "recovery_has_unresolved_or_committed_history")
-    prior = recovery["prior_action"]["expected"]["managed_context"]["ledger"]
+    prior = origin["prior_action"]["expected"]["managed_context"]["ledger"]
     # Preserve all history known by the failed action, including unrelated rows.
     require(context["ledger"]["operations"][:len(prior["operations"])] == prior["operations"]
             and context["ledger"]["issued"][:len(prior["issued"])] == prior["issued"], "recovery_prior_history_changed")
@@ -715,11 +783,12 @@ class Planner:
                 return "previously_issued_marker_requires_verified_mapping"
             try:
                 recovery = active_recovery(self.config, self.managed, marker)
-                require(recovery["observations_fingerprint"] == recovery_observation_fingerprint(self.data),
+                scope_marker = marker if recovery.get("observations_scope") == RECOVERY_ITEM_SCOPE else None
+                require(recovery["observations_fingerprint"] == recovery_observation_fingerprint(self.data, scope_marker),
                         "recovery_current_observations_changed")
                 require(pair_ref(self.config, ref(source["calendar_id"], source["event_id"])) in self.details,
                         "recovery_requires_current_source_by_id")
-                prior = recovery["prior_action"]["expected"]
+                prior = recovery_origin({r["recovery_id"]: r for r in self.managed["ledger"]["recoveries"]}, recovery)["prior_action"]["expected"]
                 require(source == prior["source"] and destination == prior["destination"]
                         and self.capabilities == prior["connector_capabilities"], "recovery_source_or_destination_changed")
                 search = self.searches.get((destination["calendar_id"], marker))
@@ -760,6 +829,23 @@ class Planner:
                 return "managed_inventory_contains_untracked_owned_marker"
         return None
 
+    def marker_inventory(self, destination_calendar, marker, managed=False):
+        """One shared inventory projection for planning, approval and reread guards."""
+        matches = self.markers.get((destination_calendar, marker), [])
+        inventory = {"calendar_id": destination_calendar, "marker": marker,
+            "scope": "current_window_plus_registered_ids", "complete": True,
+            "window": {"start": self.start.isoformat(), "end_exclusive": self.end.isoformat()},
+            "registered_destination_ids": [ref(*key) for key in sorted(self.destinations)],
+            "registry_complete": self.data["state"]["mappings_complete"],
+            "marker_search": deepcopy(self.searches.get((destination_calendar, marker))),
+            "matching_events": [deepcopy(self.observed[key]) for key in sorted(matches)],
+            "suspect_events": [deepcopy(self.observed[key]) for key in sorted(self.suspects.get((destination_calendar, marker), []))]}
+        if managed:
+            inventory["tracked_destination_observations"] = [deepcopy(self.details[key]) for key in sorted(self.tracked)]
+            inventory["observed_marker_events"] = [found_snapshot(key[0], self.observed[key]) for key in sorted(self.observed)
+                if description_kind(self.config, self.observed[key]["fields"]["description"])[0] in {"owned", "malformed"}]
+        return inventory
+
     def action(self, op, reason, source=None, marker=None, destination=None, payload=None, notes=None):
         destination = destination or {"calendar_id": None, "event_id": None, "outcome": "not_applicable", "event": None}
         record = {"op": op, "reason": reason, "marker": marker, "source": deepcopy(source),
@@ -769,28 +855,14 @@ class Planner:
                                "connector_capabilities": deepcopy(self.capabilities),
                                "source": deepcopy(source), "destination": deepcopy(destination)}}
         if marker and destination["calendar_id"]:
-            matches = self.markers.get((destination["calendar_id"], marker), [])
-            record["expected"]["marker_inventory"] = {
-                "calendar_id": destination["calendar_id"], "marker": marker,
-                "scope": "current_window_plus_registered_ids", "complete": True,
-                "window": {"start": self.start.isoformat(), "end_exclusive": self.end.isoformat()},
-                "registered_destination_ids": [ref(*key) for key in sorted(self.destinations)],
-                "registry_complete": self.data["state"]["mappings_complete"],
-                "marker_search": deepcopy(self.searches.get((destination["calendar_id"], marker))),
-                "matching_events": [deepcopy(self.observed[key]) for key in sorted(matches)],
-                "suspect_events": [deepcopy(self.observed[key]) for key in sorted(
-                    self.suspects.get((destination["calendar_id"], marker), []))]}
             search = self.searches.get((destination["calendar_id"], marker))
-            if op == "create" and search and (search["scope"] == MANAGED_SCOPE or self.managed is not None):
+            managed = bool(op == "create" and search and (search["scope"] == MANAGED_SCOPE or self.managed is not None))
+            record["expected"]["marker_inventory"] = self.marker_inventory(destination["calendar_id"], marker, managed)
+            if managed:
                 record["expected"]["managed_context"] = deepcopy(self.managed)
                 if marker in self.issued:
                     record["expected"]["recovery"] = deepcopy(active_recovery(self.config, self.managed, marker))
                     record["reason"] = "verified_zero_call_recovery_new_attempt"
-                record["expected"]["marker_inventory"]["tracked_destination_observations"] = [
-                    deepcopy(self.details[key]) for key in sorted(self.tracked)]
-                record["expected"]["marker_inventory"]["observed_marker_events"] = [
-                    found_snapshot(key[0], self.observed[key]) for key in sorted(self.observed)
-                    if description_kind(self.config, self.observed[key]["fields"]["description"])[0] in {"owned", "malformed"}]
         record["expected"]["fingerprints"] = {
             name: snapshot_fingerprint(record["expected"].get(name))
             for name in ("source", "destination", "marker_inventory", "connector_capabilities", "config")
@@ -1054,7 +1126,7 @@ def validate_creation_claim(action, fresh):
         recovery = active_recovery(config, before, action["marker"])
         require(action["expected"].get("recovery") == recovery
                 and digest(recovery) == action["expected"]["fingerprints"].get("recovery"), "creation_recovery_snapshot_mismatch")
-        prior = recovery["prior_action"]["expected"]
+        prior = recovery_origin({r["recovery_id"]: r for r in before["ledger"]["recoveries"]}, recovery)["prior_action"]["expected"]
         require(all(action["expected"][key] == prior[key] for key in ("source", "destination", "connector_capabilities")),
                 "recovery_source_or_destination_changed")
     else:

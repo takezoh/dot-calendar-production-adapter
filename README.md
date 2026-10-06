@@ -1,6 +1,6 @@
 # Portable calendar synchronization planner and adapter
 
-Adapter **1.2.1** pins planner **1.3.1**. Python 3.10+ standard library, with IANA
+Adapter **1.2.2** pins planner **1.3.2**. Python 3.10+ standard library, with IANA
 timezone data available to `zoneinfo` for all-day events. Linux normally supplies
 this data; other runtimes may provide it through `PYTHONTZPATH`. Missing timezone
 data fails closed. No credentials, authentication implementation, network client,
@@ -22,6 +22,8 @@ python3 production_adapter.py examples/timed-create.raw.json -o /tmp/calendar-no
 python3 planner.py /tmp/calendar-normalized.json -o /tmp/calendar-plan.json
 python3 planner.py --preflight examples/recovery-preflight.input.json
 python3 planner.py --revalidate examples/recovery-revalidate.input.json
+python3 planner.py --preflight examples/recovery-refresh-preflight.input.json
+python3 planner.py --revalidate examples/recovery-refresh-revalidate.input.json
 ```
 
 `verify_release.py` verifies every manifest hash and the pinned planner, runs the
@@ -49,7 +51,8 @@ resolution. Replan after each durable state/ledger change.
 - [MANAGED_COVERAGE.md](MANAGED_COVERAGE.md): durable issued history, bounded
   observations, unbounded indexed queries and actual root-serialized execution.
 - [RECOVERY_CONTRACT.md](RECOVERY_CONTRACT.md): zero-call execution evidence,
-  append-preserving single-use recovery and command/preflight gates.
+  single-use recovery, compact append-only refresh of unused certificates, scoped
+  observation hashes and command/preflight gates.
 
 An empty search never proves an uncertain write failed. Indexed searches cannot
 detect an unknown manually obscured out-of-window copy. Pure JSON guards cannot
@@ -63,6 +66,15 @@ are `production_adapter.adapt(raw)`, `planner.plan(data)`,
 `planner.preflight_action(action,fresh)`, `planner.revalidate_action(action,fresh)`
 and `planner.recovery_observation_fingerprint(data)`. Production cutover and actual
 Calendar operations are external responsibilities.
+
+For new recovery approvals use `recovery_observation_fingerprint(data, marker)`
+with `observations_scope:"recovery_item_v1"`. It binds relevant item/ownership,
+coverage, state and ledger; unrelated native attachment changes do not invalidate
+the target. The one-argument legacy algorithm remains unchanged. Refresh a stale
+UNUSED certificate by appending its compact ID/hash-linked successor; never copy
+large historical snapshots or refresh a consumed certificate. Close/drain the old
+admission first. See RECOVERY_CONTRACT.md for the mandatory root audit and exact
+record shape. Original recurring-identity conflict rules are unchanged.
 
 `build_adapter_release.py` regenerates synthetic examples, test results, manifest
 and a portable ZIP after the source/tests change. `distribution_check.py` scans

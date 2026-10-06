@@ -1,4 +1,4 @@
-# Managed creation coverage: planner 1.3.1 / adapter 1.2.1
+# Managed creation coverage: planner 1.3.2 / adapter 1.2.2
 
 This adds an explicitly narrower, truthful alternative to a universal marker
 lookup. Planner schema 3 and raw adapter schema 2 require RuntimeConfig and support an OPTIONAL
@@ -148,6 +148,10 @@ or a missing response is insufficient. An unresolved entry alone cannot authoriz
 a create. Pending/uncertain operations require a nonempty action_id. Ledger version
 2 optionally accepts `recoveries` and linked new operations with `recovery_id` as
 defined in RECOVERY_CONTRACT.md; `aborted_before_call` requires that full proof.
+Unused recovery certificates may be superseded only by the documented compact,
+audited append-only chain. Consumed records and called/uncertain attempts cannot
+use this refresh. Scoped observation hashing does not weaken marker/ownership,
+coverage, state/config or ledger verification.
 
 The ledger is append-preserving history: never remove an issued marker or its
 known IDs to make it eligible again. Update dispositions/operation status only

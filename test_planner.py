@@ -1768,6 +1768,285 @@ def preflight_fresh(action):
     return fresh
 
 
+def supersede_unused(data=None):
+    """Synthetic audited append only; production must obtain real root evidence."""
+    data = deepcopy(data) if data is not None else recovery_batch()
+    context = data["managed_context"]
+    ledger = context["ledger"]
+    old = ledger["recoveries"][-1]
+    suffix = str(len(ledger["recoveries"]) + 1)
+    context["single_writer"]["token"] = "synthetic-refresh-admission-" + suffix
+    ledger["generation"] = "synthetic-refresh-generation-" + suffix
+    new = {"recovery_id": "synthetic-refreshed-certificate-" + suffix, "operation_id": old["operation_id"],
+        "marker": old["marker"], "observations_scope": p.RECOVERY_ITEM_SCOPE,
+        "observations_fingerprint": p.recovery_observation_fingerprint(data, old["marker"]),
+        "authorized_admission_token": context["single_writer"]["token"], "consumed_by_operation_id": None,
+        "supersession": {"recovery_id": old["recovery_id"], "recovery_fingerprint": p.digest(old),
+            "reason": "refresh_current_observations", "audit_reference": "synthetic-unused-certificate-audit-" + suffix,
+            "audit_sha256": p.digest("synthetic-closed-unused-admission-" + suffix),
+            "root_authorized": True, "previous_admission_closed": True, "certificate_unused_verified": True}}
+    ledger["recoveries"].append(new)
+    return data
+
+
+class RecoverySupersessionTests(unittest.TestCase):
+    def no_writes(self, data):
+        result = p.plan(data)
+        self.assertEqual(writes(result), [], result)
+
+    def test_unused_refresh_is_compact_audited_and_preserves_old_certificate(self):
+        data = recovery_batch()
+        old = deepcopy(data["managed_context"]["ledger"])
+        data["state"]["generation"] += "-fresh-read"
+        self.no_writes(data)
+        refreshed = supersede_unused(data)
+        ledger = refreshed["managed_context"]["ledger"]
+        self.assertEqual(ledger["recoveries"][:-1], old["recoveries"])
+        self.assertEqual(ledger["operations"], old["operations"])
+        self.assertEqual(ledger["issued"], old["issued"])
+        self.assertNotIn("prior_action", ledger["recoveries"][-1])
+        self.assertNotIn("evidence", ledger["recoveries"][-1])
+        self.assertLess(len(p.canonical(ledger["recoveries"][-1]).encode("utf-8")), 1600)
+        action = writes(p.plan(refreshed))[0]
+        self.assertEqual(action["expected"]["recovery"], ledger["recoveries"][-1])
+        self.assertTrue(p.preflight_action(action, preflight_fresh(action))["ready_to_prepare"])
+        fresh = claimed_fresh(action)
+        self.assertTrue(p.revalidate_action(action, fresh)["allowed"])
+        self.assertEqual(fresh["managed_context"]["ledger"]["recoveries"][:-1], old["recoveries"])
+
+    def test_legacy_records_and_one_argument_fingerprint_remain_compatible(self):
+        data = recovery_batch()
+        self.assertEqual(len(writes(p.plan(data))), 1)
+        self.assertEqual(p.recovery_observation_fingerprint(data), p.digest({"config": p.validate_config(data["config"]),
+            **{key: data[key] for key in ("run_started_at", "connector_capabilities", "calendars", "details", "state")}}))
+
+    def test_new_initial_certificate_can_use_item_scope_without_supersession(self):
+        data = recovery_batch()
+        record = data["managed_context"]["ledger"]["recoveries"][0]
+        record["observations_scope"] = p.RECOVERY_ITEM_SCOPE
+        record["observations_fingerprint"] = p.recovery_observation_fingerprint(data, record["marker"])
+        self.assertEqual(len(writes(p.plan(data))), 1)
+
+    def test_legacy_near_file_limit_grows_by_small_references_only(self):
+        data = recovery_batch()
+        ledger = data["managed_context"]["ledger"]
+        record = ledger["recoveries"][0]
+        prior = record["prior_action"]
+        prior["notes"] = ["synthetic large historical snapshot " + "x" * 860000]
+        prior["id"] = p.digest({k: v for k, v in prior.items() if k != "id"})
+        ledger["operations"][0]["action_id"] = prior["id"]
+        record["operation_fingerprint"] = p.digest(ledger["operations"][0])
+        original_size = len(json.dumps(ledger, indent=2).encode("utf-8"))
+        self.assertGreater(original_size, 860000)
+        for _ in range(10):
+            data = supersede_unused(data)
+        current = data["managed_context"]["ledger"]
+        self.assertLess(len(json.dumps(current, indent=2).encode("utf-8")) - original_size, 20000)
+        self.assertLess(len(json.dumps(current, indent=2).encode("utf-8")), 1000000)
+        self.assertEqual(current["recoveries"][0], record)
+        self.assertEqual(len(writes(p.plan(data))), 1)
+
+    def test_each_supersession_audit_field_is_required_and_truthful(self):
+        valid = supersede_unused()
+        audit = valid["managed_context"]["ledger"]["recoveries"][-1]["supersession"]
+        for key in audit:
+            with self.subTest(missing=key):
+                data = deepcopy(valid)
+                del data["managed_context"]["ledger"]["recoveries"][-1]["supersession"][key]
+                self.no_writes(data)
+        for key, value in {"audit_reference": "", "audit_sha256": "bad", "root_authorized": False,
+                           "previous_admission_closed": False, "certificate_unused_verified": False,
+                           "reason": "retry_after_empty_search", "recovery_fingerprint": "f" * 64}.items():
+            with self.subTest(changed=key):
+                data = deepcopy(valid)
+                data["managed_context"]["ledger"]["recoveries"][-1]["supersession"][key] = value
+                self.no_writes(data)
+
+    def test_same_admission_cannot_refresh_an_unused_certificate(self):
+        data = supersede_unused()
+        context = data["managed_context"]
+        new, old = context["ledger"]["recoveries"][-1], context["ledger"]["recoveries"][0]
+        context["single_writer"]["token"] = new["authorized_admission_token"] = old["authorized_admission_token"]
+        self.no_writes(data)
+
+    def test_supersession_cannot_reuse_an_earlier_nonadjacent_admission(self):
+        data = supersede_unused(supersede_unused())
+        context = data["managed_context"]
+        records = context["ledger"]["recoveries"]
+        context["single_writer"]["token"] = records[-1]["authorized_admission_token"] = records[0]["authorized_admission_token"]
+        self.no_writes(data)
+
+    def test_compact_supersession_cannot_target_a_different_operation_or_marker(self):
+        for key, value in (("operation_id", "different-operation"), ("marker", p.marker_for(CONFIG, A, "another-source", None, B))):
+            data = supersede_unused()
+            data["managed_context"]["ledger"]["recoveries"][-1][key] = value
+            self.no_writes(data)
+
+    def test_consumed_certificate_cannot_be_refreshed_even_before_call(self):
+        data = recovery_batch()
+        action = writes(p.plan(data))[0]
+        data["managed_context"] = claimed_fresh(action)["managed_context"]
+        refreshed = supersede_unused(data)
+        self.no_writes(refreshed)
+
+    def test_uncertain_committed_or_positive_call_evidence_cannot_refresh(self):
+        for change in ("uncertain", "committed", "call", "dispatch", "uncertainty"):
+            data = supersede_unused()
+            ledger = data["managed_context"]["ledger"]
+            original = ledger["recoveries"][0]
+            if change in {"uncertain", "committed"}:
+                ledger["operations"][0]["status"] = change
+                original["operation_fingerprint"] = p.digest(ledger["operations"][0])
+            else:
+                key, value = {"call": ("calendar_calls_issued", 1), "dispatch": ("call_dispatch_started", True),
+                              "uncertainty": ("external_write_uncertainty", True)}[change]
+                original["evidence"][key] = value
+            ledger["recoveries"][-1]["supersession"]["recovery_fingerprint"] = p.digest(original)
+            self.no_writes(data)
+
+    def test_origin_evidence_cannot_be_overridden_in_compact_certificate(self):
+        for key, value in (("prior_action", {}), ("evidence", {}), ("outcome", "verified_no_write"), ("config_fingerprint", "f" * 64)):
+            data = supersede_unused()
+            data["managed_context"]["ledger"]["recoveries"][-1][key] = value
+            self.no_writes(data)
+
+    def test_refresh_must_reference_latest_existing_same_operation_and_preserve_chain(self):
+        valid = supersede_unused(supersede_unused())
+        for change in ("branch", "missing", "cycle", "deleted_origin", "deleted_middle", "changed_origin", "duplicate"):
+            with self.subTest(change=change):
+                data = deepcopy(valid)
+                records = data["managed_context"]["ledger"]["recoveries"]
+                if change == "branch":
+                    records[-1]["supersession"].update(recovery_id=records[0]["recovery_id"], recovery_fingerprint=p.digest(records[0]))
+                elif change in {"missing", "cycle"}:
+                    records[-1]["supersession"]["recovery_id"] = "unknown" if change == "missing" else records[-1]["recovery_id"]
+                elif change == "deleted_origin":
+                    del records[0]
+                elif change == "deleted_middle":
+                    del records[1]
+                elif change == "changed_origin":
+                    records[0]["observations_fingerprint"] = "f" * 64
+                else:
+                    records.append(deepcopy(records[-1]))
+                self.no_writes(data)
+
+    def test_old_action_and_old_certificate_cannot_execute_after_supersession(self):
+        data = recovery_batch()
+        old_action = writes(p.plan(data))[0]
+        refreshed = supersede_unused(data)
+        current_action = writes(p.plan(refreshed))[0]
+        self.assertFalse(p.preflight_action(old_action, preflight_fresh(current_action))["ready_to_prepare"])
+        self.assertFalse(p.revalidate_action(old_action, claimed_fresh(current_action))["allowed"])
+        fresh = claimed_fresh(current_action)
+        # Trying to consume the superseded origin changes its referenced hash.
+        records = fresh["managed_context"]["ledger"]["recoveries"]
+        records[0]["consumed_by_operation_id"] = records[-1]["consumed_by_operation_id"]
+        records[-1]["consumed_by_operation_id"] = None
+        fresh["managed_context"]["ledger"]["operations"][-1]["recovery_id"] = records[0]["recovery_id"]
+        self.assertFalse(p.revalidate_action(current_action, fresh)["allowed"])
+
+    def test_refreshed_certificate_consumes_only_its_own_new_attempt_once(self):
+        data = supersede_unused(supersede_unused())
+        action = writes(p.plan(data))[0]
+        fresh = claimed_fresh(action)
+        self.assertTrue(p.revalidate_action(action, fresh)["allowed"])
+        records = fresh["managed_context"]["ledger"]["recoveries"]
+        self.assertTrue(all(record["consumed_by_operation_id"] is None for record in records[:-1]))
+        self.assertIsNotNone(records[-1]["consumed_by_operation_id"])
+        data["managed_context"] = fresh["managed_context"]
+        self.no_writes(data)
+
+
+class ScopedRecoveryObservationTests(unittest.TestCase):
+    def data(self):
+        relevant, unrelated = event(), event("unrelated-native")
+        data = recovery_batch(serialized(managed(projection(batch([relevant], responses=[found(A, relevant)])))))
+        extra = projection(batch([unrelated], responses=[found(A, unrelated)]))
+        data["calendars"][0]["listing"]["events"].extend(extra["calendars"][0]["listing"]["events"])
+        data["details"]["requested"].extend(extra["details"]["requested"])
+        data["details"]["responses"].extend(extra["details"]["responses"])
+        return supersede_unused(data)
+
+    def target(self, data):
+        marker = data["managed_context"]["ledger"]["recoveries"][-1]["marker"]
+        return next((action for action in p.plan(data)["actions"] if action.get("marker") == marker), None)
+
+    def test_unrelated_native_attachment_change_keeps_target_action_and_both_guards(self):
+        before = self.data()
+        action = self.target(before)
+        after = deepcopy(before)
+        for observation in (after["calendars"][0]["listing"]["events"][1], after["details"]["responses"][1]["event"]):
+            observation["fields"]["other"]["observed"]["attachments"] = [{"file_url": "https://example.invalid/changed-attachment"}]
+        marker = action["marker"]
+        self.assertEqual(p.recovery_observation_fingerprint(before, marker), p.recovery_observation_fingerprint(after, marker))
+        fresh_action = self.target(after)
+        self.assertEqual(action, fresh_action)
+        self.assertTrue(p.preflight_action(action, preflight_fresh(fresh_action))["ready_to_prepare"])
+        self.assertTrue(p.revalidate_action(action, claimed_fresh(fresh_action))["allowed"])
+
+    def test_source_attachment_time_and_identity_changes_still_block(self):
+        for change in ("attachment", "time", "identity"):
+            data = self.data()
+            for source in (data["calendars"][0]["listing"]["events"][0], data["details"]["responses"][0]["event"]):
+                if change == "attachment":
+                    source["fields"]["other"]["observed"]["attachments"] = ["changed"]
+                elif change == "time":
+                    source["start"]["dateTime"] = "2026-10-07T17:00:00+09:00"
+                else:
+                    source["original_start_time"] = "2026-10-07T18:00:00+09:00"
+            target = self.target(data)
+            self.assertTrue(target is None or target["op"] != "create")
+
+    def test_relevant_change_cannot_be_approved_away_by_supersession(self):
+        data = self.data()
+        for source in (data["calendars"][0]["listing"]["events"][0], data["details"]["responses"][0]["event"]):
+            source["fields"]["summary"] += " changed"
+        refreshed = supersede_unused(data)
+        self.assertNotEqual(self.target(refreshed)["op"], "create")
+
+    def test_unrelated_event_becoming_owned_or_malformed_invalidates_ownership_inventory(self):
+        for suffix in ("", " extra"):
+            data = self.data()
+            marker = data["managed_context"]["ledger"]["recoveries"][-1]["marker"]
+            for source in (data["calendars"][0]["listing"]["events"][1], data["details"]["responses"][1]["event"]):
+                source["fields"]["description"] = marker + suffix
+            self.assertNotEqual(self.target(data)["op"], "create")
+
+    def test_destination_match_and_marker_query_candidate_changes_still_block(self):
+        for location in ("window", "query"):
+            data = self.data()
+            destination = projection(batch([], [mirror(event())]))["calendars"][1]["listing"]["events"][0]
+            if location == "window":
+                data["calendars"][1]["listing"]["events"].append(destination)
+            else:
+                data["calendars"][1]["marker_searches"][0]["events"].append(destination)
+            self.assertNotEqual(self.target(data)["op"], "create")
+
+    def test_coverage_config_state_ledger_and_unknown_scope_changes_fail_closed(self):
+        for change in ("pages", "details", "queries", "config", "state", "ledger", "scope"):
+            data = self.data()
+            if change == "pages":
+                data["calendars"][1]["listing"]["complete"] = False
+            elif change == "details":
+                data["details"]["responses"].pop()
+            elif change == "queries":
+                data["calendars"][1]["marker_searches"][0]["queries"][0]["complete"] = False
+            elif change == "config":
+                data["config"]["namespace"] = "f" * 32
+            elif change == "state":
+                data["state"]["generation"] += "-changed"
+            elif change == "ledger":
+                data["managed_context"]["ledger"]["generation"] += "-changed"
+            else:
+                data["managed_context"]["ledger"]["recoveries"][-1]["observations_scope"] = "ignore_all_changes"
+            with self.subTest(change=change):
+                target = self.target(data)
+                self.assertTrue(target is None or target["op"] != "create")
+                if change in {"pages", "details", "queries", "config", "scope"}:
+                    with self.assertRaises(p.ContractError):
+                        p.recovery_observation_fingerprint(data, data["managed_context"]["ledger"]["recoveries"][-1]["marker"])
+
+
 class RecoveryTests(unittest.TestCase):
     def no_writes(self, data):
         result = p.plan(data)

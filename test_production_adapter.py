@@ -774,6 +774,30 @@ class RecoveryAdapterTests(unittest.TestCase):
         self.assertEqual(normalized["managed_context"], expected["managed_context"])
         self.assertEqual(writes(p.plan(normalized)), [])
 
+    def raw_supersession(self):
+        import test_planner as fixtures
+        raw, normalized = self.raw_recovery()
+        refreshed = fixtures.supersede_unused(normalized)
+        raw["managed_context"] = deepcopy(refreshed["managed_context"])
+        return raw, refreshed
+
+    def test_compact_unused_supersession_survives_adapter_and_both_guards(self):
+        import test_planner as fixtures
+        raw, expected = self.raw_supersession()
+        normalized = a.adapt(raw)
+        self.assertEqual(normalized, expected)
+        self.assertEqual(normalized["managed_context"]["ledger"]["recoveries"], raw["managed_context"]["ledger"]["recoveries"])
+        self.assertNotIn("prior_action", normalized["managed_context"]["ledger"]["recoveries"][-1])
+        action = writes(p.plan(normalized))[0]
+        self.assertTrue(p.preflight_action(action, fixtures.preflight_fresh(action))["ready_to_prepare"])
+        self.assertTrue(p.revalidate_action(action, fixtures.claimed_fresh(action))["allowed"])
+
+    def test_adapter_does_not_synthesize_missing_supersession_audit(self):
+        raw, _ = self.raw_supersession()
+        del raw["managed_context"]["ledger"]["recoveries"][-1]["supersession"]["audit_reference"]
+        with self.assertRaisesRegex(a.AdapterError, "invalid_recovery_supersession"):
+            a.adapt(raw)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)

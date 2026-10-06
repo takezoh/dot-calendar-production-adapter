@@ -1,6 +1,6 @@
 # Explicit runtime configuration and distribution boundary
 
-Planner 1.3.1 requires input schema 3. Adapter 1.2.1 requires raw schema 2.
+Planner 1.3.2 requires input schema 3. Adapter 1.2.2 requires raw schema 2.
 RuntimeConfig version is 1. Managed ledger version is 2. Old input shapes are
 rejected; no default accounts, implicit namespace or automatic state rebinding.
 
