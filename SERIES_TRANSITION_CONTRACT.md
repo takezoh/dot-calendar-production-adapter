@@ -18,8 +18,8 @@ and [event resource](https://developers.google.com/workspace/calendar/api/v3/ref
 ## Evidence and supported scope
 
 The external reviewer obtains actual master details and fully paginated instance
-reads using the existing direct Google Calendar plugin. Unbounded instance reads
-must include deleted events. Project the returned evidence into the records below;
+reads using the existing direct Google Calendar plugin. Every instance read must
+include deleted events. Project the returned evidence into the records below;
 do not invent missing fields or insert recurring masters into ordinary expanded
 event listings. Preserve complete read-only evidence externally and bind it by
 reference and SHA-256. Synthetic fixture builders are **not evidence collectors**.
@@ -29,22 +29,25 @@ This first implementation intentionally accepts only all of these conditions:
 - Two distinct self-owned, confirmed, timed masters in one allowed source calendar;
   the verified RuntimeConfig self identities and explicit connector `is_self:true`
   agree. Every instance carries the same ownership evidence.
-- One finite `RRULE:FREQ=WEEKLY` per master; interval absent or `1`; one matching
-  weekday or no BYDAY; optional valid WKST; exactly one UTC UNTIL or positive COUNT.
+- One `RRULE:FREQ=WEEKLY` per master; interval absent or `1`; one matching
+  weekday or no BYDAY; optional valid WKST; optional UTC UNTIL or positive COUNT
+  (never both). The new continuation may have neither and continue indefinitely.
   No RDATE/EXDATE/additional rules. An actual IANA timezone must be available.
 - Old master has UNTIL before the split and its last nominal occurrence is exactly
   one local week before the new master's first occurrence. Same timezone, weekly
   pattern, local start time and elapsed duration. Old starts before the split;
   new starts at the split instant.
-- **Timestamp interpretation:** the new master's own `created == updated`, and
-  `old.updated <= new.created` as instants. Equality between old and new created
-  timestamps is not required. Other interpretations need a separately reviewed
-  contract; do not relabel evidence to satisfy this one.
-- Exhausted old/new instance collections contain every nominal weekly slot from
-  each master start through its COUNT/UNTIL. No cancelled entries, duplicate IDs,
-  duplicate nominal instants, missing slots, aliases or overlap. Old rows all precede
-  the boundary. New rows exactly equal all registered occurrences of the old series
-  at/after the boundary. Partial subsets are rejected.
+- **Timestamp evidence:** `old.created == new.created` and
+  `old.updated <= new.updated` as instants, bound to fresh master reads and the
+  reviewed evidence. Both masters may preserve the same historical created and
+  updated timestamps; `new.created == new.updated` is never required. An
+  independently created master with a different created timestamp is rejected.
+- Exhausted old/new instance reads use either the exact current run-start/+90-day
+  window or, for a finite master only, no time bounds. No cancelled entries,
+  duplicate IDs, duplicate nominal instants, aliases or overlap. Old nominal rows
+  all precede the split. Old UNTIL includes the nominal week immediately before the
+  split and excludes the split itself. New rows exactly equal all registered
+  occurrences of the old series at/after the boundary. Partial subsets are rejected.
 - Every affected occurrence keeps its exact event ID, byte-identical raw
   `original_start_time`, current start/end, marker, destination ID, response and
   confirmed status. A previously moved exception is supported when both its nominal
@@ -57,10 +60,26 @@ This first implementation intentionally accepts only all of these conditions:
   serialization satisfy the existing full contracts.
 
 All-day splits, monthly/daily/multi-weekday rules, interval greater than one,
-unbounded series, changed time/response, out-of-window affected occurrences and
+changed time/response, out-of-window affected occurrences and
 partially mapped new series remain unsupported conflicts. They never fall back to
 delete/recreate. Normal all-day and recurrence synchronization outside this review
 mode remains unchanged.
+
+A bounded collection proves only its requested current window, including ongoing
+events (`end > time_min` and `start < time_max`). It need not start at the master's
+first historical occurrence or prove that an infinite series ends. Every returned
+row must intersect those bounds, and every known in-scope instance must appear in
+the pages. Known-ID source/destination snapshots and the exact registered target
+set provide a second check. Nominal gaps alone are not rejected for bounded reads:
+moved exceptions can leave a nominal slot while changing no identity. The caller
+must truthfully certify full pagination; the offline code cannot discover a page
+that the caller falsely claims does not exist.
+
+The old bounded collection may be empty when all pre-split instances are past;
+its RRULE still proves the adjacent pre-boundary truncation. An optional unbounded
+read of a finite master must include every nominal slot through COUNT/UNTIL.
+An unbounded read of an infinite master is rejected. Old and new collections may
+use different supported scopes; neither scope authorizes global absence inference.
 
 Old/new iCalUID values may differ. Each instance must match its respective master;
 any exposed UID in the saved/current source snapshot must match the old/new master
@@ -96,7 +115,7 @@ by `planner.digest`. This differs from the unchanged ordered-array marker recipe
     readonly_evidence_verified: true,
     previous_writers_drained: true,
     admission_token: exact managed_context.single_writer.token,
-    timestamp_relation: "new_created_equals_updated"
+    timestamp_relation: "shared_created_and_ordered_updates"
   }
 }
 
@@ -105,13 +124,16 @@ Master = {
   status: "confirmed", organizer: {email: verified self email, is_self: true},
   created: RFC3339, updated: RFC3339,
   start: explicit-offset RFC3339, end: explicit-offset RFC3339,
-  time_zone: IANA name, recurrence: [single finite weekly RRULE string],
+  time_zone: IANA name, recurrence: [single weekly RRULE string],
   i_cal_uid: actual nonempty returned UID
 }
 
 InstanceCollection = {
   calendar_id: source_calendar_id, master_id: corresponding master ID,
-  show_deleted: true, time_min: null, time_max: null, complete: true,
+  show_deleted: true,
+  time_min: exact run start (or null only for an unbounded finite-master read),
+  time_max: exact run start plus 90 elapsed days (or null with time_min null),
+  complete: true,
   pages: [{
     request_page_token: null first, otherwise previous next_page_token,
     response: {
@@ -221,3 +243,10 @@ rejected. The pure guard cannot prove external evidence truth, implement durable
 storage/CAS, serialize writers or detect identical-input replay. Those remain root
 executor responsibilities. No actual calendar/configuration/ledger/schedule change
 is performed by this package, and no new authentication is required.
+
+The packaged example and regression use the reported production shape with wholly
+synthetic values: shared historical created timestamps, shared later updated
+timestamps, `RRULE:FREQ=WEEKLY;BYDAY=TU` without UNTIL/COUNT on the new master,
+thirteen stable in-window instances, different old/new iCalUID, and unchanged
+mirrors. Both a finite complete old read and an empty exhausted bounded old read
+are tested. No live data is included.

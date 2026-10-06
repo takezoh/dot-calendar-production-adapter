@@ -24,7 +24,7 @@ import planner
 
 ADAPTER_VERSION = "1.3.0"
 RAW_SCHEMA_VERSION = 2
-PINNED_PLANNER_SHA256 = 'c44f02c12686407ba92342fc8465d29bc2e936c0d91eed319324e8884acde42d'
+PINNED_PLANNER_SHA256 = '88927aa5188261314c04e9764d93c2f1c8c6e79b5fd98ab89d8907886e04438d'
 CAPABILITIES = {"concurrency_mode": "snapshot_reread", "provider_etag": False,
                 "conditional_writes": False, "field_profile": "google_calendar_projection"}
 DETAIL_FIELDS = {"guests_can_modify", "locked", "id", "summary", "status", "organizer",

@@ -56,9 +56,10 @@ resolution. Replan after each durable state/ledger change.
 - [RECOVERY_CONTRACT.md](RECOVERY_CONTRACT.md): zero-call execution evidence,
   single-use recovery, compact append-only refresh of unused certificates, scoped
   observation hashes and command/preflight gates.
-- [SERIES_TRANSITION_CONTRACT.md](SERIES_TRANSITION_CONTRACT.md): reviewed finite
-  weekly splits with stable occurrence IDs, full instance pages and unchanged
-  mirrors; audited state-baseline replacement only, with a separate fresh guard.
+- [SERIES_TRANSITION_CONTRACT.md](SERIES_TRANSITION_CONTRACT.md): reviewed weekly
+  splits, including infinite continuations with complete current-window pages and
+  preserved creation timestamps; stable occurrence IDs and unchanged mirrors;
+  audited state-baseline replacement only, with a separate fresh guard.
 
 An empty search never proves an uncertain write failed. Indexed searches cannot
 detect an unknown manually obscured out-of-window copy. Pure JSON guards cannot

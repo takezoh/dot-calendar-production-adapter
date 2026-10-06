@@ -617,7 +617,7 @@ def series_master(config, calendar_id, value):
     require(set(rule) <= {"FREQ", "INTERVAL", "BYDAY", "WKST", "UNTIL", "COUNT"}
             and rule.get("FREQ") == "WEEKLY" and rule.get("INTERVAL", "1") == "1"
             and rule.get("BYDAY", weekday) == weekday and rule.get("WKST", "MO") in {"MO", "TU", "WE", "TH", "FR", "SA", "SU"}
-            and ("UNTIL" in rule) != ("COUNT" in rule), "unsupported_series_transition_rrule")
+            and not ("UNTIL" in rule and "COUNT" in rule), "unsupported_series_transition_rrule")
     if "UNTIL" in rule:
         require(re.fullmatch(r"[0-9]{8}T[0-9]{6}Z", rule["UNTIL"]), "series_until_requires_utc")
         try:
@@ -626,19 +626,25 @@ def series_master(config, calendar_id, value):
             raise ContractError("invalid_series_until") from exc
         require(limit >= instant(value["start"]), "series_until_precedes_master_start")
     else:
-        require(re.fullmatch(r"[1-9][0-9]*", rule["COUNT"]), "invalid_series_count")
+        require("COUNT" not in rule or re.fullmatch(r"[1-9][0-9]*", rule["COUNT"]), "invalid_series_count")
         limit = None
     return {"zone": zone, "local_start": local_start, "duration": instant(value["end"]) - instant(value["start"]),
             "until": limit, "count": int(rule["COUNT"]) if "COUNT" in rule else None,
             "pattern": {"frequency": "WEEKLY", "weekday": weekday, "interval": 1, "week_start": rule.get("WKST", "MO")}}
 
 
-def series_instance_pages(config, calendar_id, master, schedule, collection):
+def series_instance_pages(config, calendar_id, master, schedule, collection, window_start, window_end):
     keys = {"calendar_id", "master_id", "show_deleted", "time_min", "time_max", "complete", "pages"}
     require(isinstance(collection, dict) and set(collection) == keys and collection["calendar_id"] == calendar_id
             and collection["master_id"] == master["event_id"] and collection["show_deleted"] is True
-            and collection["time_min"] is None and collection["time_max"] is None and collection["complete"] is True,
-            "series_instances_require_complete_unbounded_show_deleted_reads")
+            and collection["complete"] is True, "series_instances_require_complete_show_deleted_reads")
+    bounded = collection["time_min"] is not None or collection["time_max"] is not None
+    if bounded:
+        require(instant(collection["time_min"]) == window_start and instant(collection["time_max"]) == window_end,
+                "series_instances_require_exact_current_window")
+    else:
+        require(schedule["until"] is not None or schedule["count"] is not None,
+                "unbounded_series_requires_bounded_instance_read")
     require(isinstance(collection["pages"], list) and bool(collection["pages"]), "series_instance_pages_missing")
     expected, tokens, rows, originals = None, set(), {}, set()
     for index, page in enumerate(collection["pages"]):
@@ -661,7 +667,11 @@ def series_instance_pages(config, calendar_id, master, schedule, collection):
                     and local.timetz().replace(tzinfo=None) == schedule["local_start"].timetz().replace(tzinfo=None)
                     and nominal >= instant(master["start"]), "series_instance_off_nominal_schedule")
             require(instant(row["start"]) < instant(row["end"]), "invalid_series_instance_times")
+            require(not bounded or instant(row["end"]) > window_start and instant(row["start"]) < window_end,
+                    "series_instance_outside_requested_window")
             require(schedule["until"] is None or nominal <= schedule["until"], "series_instance_after_until")
+            require(schedule["count"] is None or (local.date() - schedule["local_start"].date()).days // 7 < schedule["count"],
+                    "series_instance_after_count")
             rows[row["event_id"]] = row
             originals.add(nominal)
         expected = response["next_page_token"]
@@ -669,6 +679,11 @@ def series_instance_pages(config, calendar_id, master, schedule, collection):
         if expected is not None:
             tokens.add(expected)
     require(expected is None, "series_instance_pages_incomplete")
+    # A bounded query proves only its actual-time window. Moved exceptions may
+    # leave nominal gaps; complete pages plus exact registered/detail ID matching
+    # below bind the affected set without pretending the whole series is finite.
+    if bounded:
+        return rows
     require(bool(rows) and (schedule["count"] is None or len(rows) == schedule["count"]), "series_instance_count_mismatch")
     # For this narrow single-weekday rule, an exhausted list must have every slot.
     local_dates = sorted(instant(r["original_start_time"]).astimezone(schedule["zone"]).date() for r in rows.values())
@@ -902,9 +917,9 @@ class Planner:
         old_schedule, new_schedule = series_master(self.config, cid, old), series_master(self.config, cid, new)
         require(old["event_id"] != new["event_id"] and (cid, old["event_id"]) not in self.observed
                 and (cid, new["event_id"]) not in self.observed, "series_masters_must_be_distinct_and_separate_from_expanded_events")
-        require(review["timestamp_relation"] == "new_created_equals_updated"
-                and instant(new["created"]) == instant(new["updated"])
-                and instant(old["updated"]) <= instant(new["created"]), "series_creation_timestamp_evidence_mismatch")
+        require(review["timestamp_relation"] == "shared_created_and_ordered_updates"
+                and instant(old["created"]) == instant(new["created"])
+                and instant(old["updated"]) <= instant(new["updated"]), "series_creation_timestamp_evidence_mismatch")
         boundary = instant(certificate["split_original_start_time"])
         require(old_schedule["until"] is not None and old_schedule["until"] < boundary
                 and instant(old["start"]) < boundary == instant(new["start"]), "series_split_boundary_not_proven")
@@ -912,8 +927,16 @@ class Planner:
                 and old_schedule["duration"] == new_schedule["duration"]
                 and old_schedule["local_start"].timetz().replace(tzinfo=None) == new_schedule["local_start"].timetz().replace(tzinfo=None),
                 "series_split_schedule_changed")
-        old_rows = series_instance_pages(self.config, cid, old, old_schedule, certificate["old_instances"])
-        new_rows = series_instance_pages(self.config, cid, new, new_schedule, certificate["new_instances"])
+        previous_nominal = (boundary.astimezone(old_schedule["zone"]) - timedelta(days=7)).astimezone(timezone.utc)
+        require(instant(old["start"]) <= previous_nominal <= old_schedule["until"], "series_split_nominal_boundary_gap")
+        old_rows = series_instance_pages(self.config, cid, old, old_schedule, certificate["old_instances"], self.start, self.end)
+        new_rows = series_instance_pages(self.config, cid, new, new_schedule, certificate["new_instances"], self.start, self.end)
+        for master, collection, rows in ((old, certificate["old_instances"], old_rows), (new, certificate["new_instances"], new_rows)):
+            for key, observed in self.observed.items():
+                if key[0] == cid and observed["recurring_event_id"] == master["event_id"]:
+                    in_scope = collection["time_min"] is None or (
+                        instant(observed["end"].get("dateTime")) > self.start and instant(observed["start"].get("dateTime")) < self.end)
+                    require(not in_scope or key[1] in rows, "series_page_omits_known_instance_in_scope")
         for row in [*old_rows.values(), *new_rows.values()]:
             known_key = cid, row["event_id"]
             if known_key in self.details:
@@ -927,8 +950,6 @@ class Planner:
         require(not set(old_rows) & set(new_rows)
                 and all(instant(r["original_start_time"]) < boundary for r in old_rows.values())
                 and all(instant(r["original_start_time"]) >= boundary for r in new_rows.values()), "series_split_instance_overlap")
-        last_old = max(instant(r["original_start_time"]) for r in old_rows.values()).astimezone(old_schedule["zone"])
-        require((last_old + timedelta(days=7)).astimezone(timezone.utc) == boundary, "series_split_nominal_boundary_gap")
         affected = {key for key, mapping in self.mappings.items() if key[0] == cid
                     and mapping["verified_source"]["recurring_event_id"] == old["event_id"]
                     and instant(mapping["source"]["original_start_time"]) >= boundary}

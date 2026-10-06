@@ -799,9 +799,9 @@ class RecoveryAdapterTests(unittest.TestCase):
             a.adapt(raw)
 
 
-def series_split_raw(count=3):
+def series_split_raw(count=3, bounded=False):
     import test_planner as fixtures
-    proof_data = fixtures.series_split_batch(count)
+    proof_data = fixtures.series_split_batch(count, bounded=bounded)
     cert = proof_data["series_transitions"][0]
     sources, mirrors, mappings = [], [], []
     for stored in proof_data["state"]["mappings"]:
@@ -826,6 +826,24 @@ def series_split_raw(count=3):
 
 
 class SeriesTransitionAdapterTests(unittest.TestCase):
+    def test_direct_projection_preserves_shared_timestamps_infinite_weekly_rule_and_bounded_thirteen(self):
+        import test_planner as fixtures
+        raw, expected = series_split_raw(13, bounded=True)
+        cert = raw["series_transitions"][0]
+        self.assertEqual(cert["new_master"]["created"], cert["old_master"]["created"])
+        self.assertEqual(cert["new_master"]["updated"], cert["old_master"]["updated"])
+        self.assertNotEqual(cert["new_master"]["created"], cert["new_master"]["updated"])
+        self.assertEqual(cert["new_master"]["recurrence"], ["RRULE:FREQ=WEEKLY;BYDAY=TU"])
+        normalized = a.adapt(raw)
+        self.assertEqual(normalized, expected)
+        result = p.plan(normalized)
+        self.assertEqual(result["status"], "series_rebind_ready", result)
+        self.assertEqual(result["counts"]["noop"], 13)
+        self.assertEqual(writes(result), [])
+        checked = p.revalidate_series_rebind(result["series_rebinds"][0], fixtures.series_fresh(normalized))
+        self.assertTrue(checked["state_write_allowed"])
+        self.assertFalse(checked["calendar_call_allowed"])
+
     def test_direct_projection_with_external_reviewed_certificate_has_no_calendar_mutations(self):
         import test_planner as fixtures
         raw, expected = series_split_raw(13)

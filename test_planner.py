@@ -2315,13 +2315,14 @@ class PreflightTests(unittest.TestCase):
         self.assertFalse(json.loads(output.getvalue())["ready_to_prepare"])
 
 
-def series_split_batch(count=3):
+def series_split_batch(count=3, bounded=False):
     old_id, new_id = "synthetic-old-master", "synthetic-new-master"
     old_uid, new_uid = "old-series@example.invalid", "new-series@example.invalid"
+    first = p.instant("2026-10-06T13:00:00Z" if bounded else "2026-10-07T09:00:00Z").astimezone(p.ZoneInfo("Asia/Tokyo"))
+    weekday = "TU" if bounded else "WE"
     sources, targets, mappings = [], [], []
     for index in range(count):
-        begin = (p.instant("2026-10-07T09:00:00Z") + timedelta(days=7 * index)).astimezone(
-            p.ZoneInfo("Asia/Tokyo")).isoformat()
+        begin = (first + timedelta(days=7 * index)).isoformat()
         end = (p.instant(begin) + timedelta(hours=1)).astimezone(p.ZoneInfo("Asia/Tokyo")).isoformat()
         before = event("stable-instance-" + str(index), begin, end)
         before.update(recurring_event_id=old_id, original_start_time=begin)
@@ -2336,18 +2337,17 @@ def series_split_batch(count=3):
     data = serialized(managed(projection(batch(sources, targets, mappings))))
     organizer = {"email": A, "is_self": True}
     old = {"calendar_id": A, "event_id": old_id, "status": "confirmed", "organizer": deepcopy(organizer),
-        "created": "2026-09-01T00:00:00Z", "updated": "2026-10-06T10:00:00Z",
-        "start": "2026-09-23T18:00:00+09:00", "end": "2026-09-23T19:00:00+09:00", "time_zone": "Asia/Tokyo",
-        "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=WE;UNTIL=20261007T085959Z"], "i_cal_uid": old_uid}
+        "created": "2024-06-04T01:23:45Z", "updated": "2026-10-06T10:00:00.123Z",
+        "start": (first - timedelta(days=14)).isoformat(), "end": (first - timedelta(days=14) + timedelta(hours=1)).isoformat(), "time_zone": "Asia/Tokyo",
+        "recurrence": ["RRULE:FREQ=WEEKLY;BYDAY=" + weekday + ";UNTIL=" + (first - timedelta(seconds=1)).astimezone(p.timezone.utc).strftime("%Y%m%dT%H%M%SZ")], "i_cal_uid": old_uid}
     new = deepcopy(old)
-    new.update(event_id=new_id, created="2026-10-06T10:01:00Z", updated="2026-10-06T10:01:00Z",
-               start="2026-10-07T18:00:00+09:00", end="2026-10-07T19:00:00+09:00",
-               recurrence=["RRULE:FREQ=WEEKLY;BYDAY=WE;COUNT=" + str(count)], i_cal_uid=new_uid)
+    new.update(event_id=new_id, start=first.isoformat(), end=(first + timedelta(hours=1)).isoformat(),
+               recurrence=["RRULE:FREQ=WEEKLY;BYDAY=" + weekday + ("" if bounded else ";COUNT=" + str(count))], i_cal_uid=new_uid)
     old_rows = [{"calendar_id": A, "event_id": "before-split-" + str(index), "recurring_event_id": old_id,
         "original_start_time": begin, "status": "confirmed", "start": begin,
         "end": (p.instant(begin) + timedelta(hours=1)).astimezone(p.ZoneInfo("Asia/Tokyo")).isoformat(),
         "organizer": deepcopy(organizer), "i_cal_uid": old_uid}
-        for index, begin in enumerate(("2026-09-23T18:00:00+09:00", "2026-09-30T18:00:00+09:00"))]
+        for index, begin in enumerate(((first - timedelta(days=14)).isoformat(), (first - timedelta(days=7)).isoformat()))]
     new_rows = [{"calendar_id": A, "event_id": source["id"], "recurring_event_id": new_id,
         "original_start_time": source["original_start_time"], "status": "confirmed", "start": source["start"]["dateTime"],
         "end": source["end"]["dateTime"], "organizer": deepcopy(organizer), "i_cal_uid": new_uid} for source in sources]
@@ -2364,8 +2364,18 @@ def series_split_batch(count=3):
         "review": {"status": "approved", "connector": "google_calendar_direct", "evidence_reference": "synthetic-readonly-split-audit",
             "evidence_sha256": p.digest("synthetic-full-master-instance-and-mirror-readbacks"), "readonly_evidence_verified": True,
             "previous_writers_drained": True, "admission_token": data["managed_context"]["single_writer"]["token"],
-            "timestamp_relation": "new_created_equals_updated"}}
+        "timestamp_relation": "shared_created_and_ordered_updates"}}
+    if bounded:
+        current_window_instances(certificate["new_instances"], data)
     return attach_series_certificate(data, certificate)
+
+
+def current_window_instances(collection, data):
+    collection["time_min"] = data["run_started_at"]
+    collection["time_max"] = (p.instant(data["run_started_at"]) + timedelta(days=90)).isoformat()
+    for page in collection["pages"]:
+        page["response"]["events"] = [row for row in page["response"]["events"] if
+            p.instant(row["end"]) > p.instant(collection["time_min"]) and p.instant(row["start"]) < p.instant(collection["time_max"])]
 
 
 def attach_series_certificate(data, certificate):
@@ -2398,6 +2408,138 @@ class SeriesTransitionTests(unittest.TestCase):
         self.assertEqual(result.get("series_rebinds", []), [], result)
         self.assertIn(result["status"], {"blocked", "review_required"})
         return result
+
+    def test_shared_historical_timestamps_unbounded_tuesday_and_thirteen_bounded_instances(self):
+        data = series_split_batch(13, bounded=True)
+        cert = data["series_transitions"][0]
+        old, new = cert["old_master"], cert["new_master"]
+        self.assertEqual(old["created"], new["created"])
+        self.assertEqual(old["updated"], new["updated"])
+        self.assertNotEqual(new["created"], new["updated"])
+        self.assertEqual(new["recurrence"], ["RRULE:FREQ=WEEKLY;BYDAY=TU"])
+        self.assertEqual(cert["new_instances"]["time_min"], RUN)
+        result = p.plan(data)
+        self.assertEqual(result["status"], "series_rebind_ready", result)
+        self.assertEqual(result["counts"], {"create": 0, "update": 0, "delete": 0, "noop": 13, "conflict": 0})
+        proposal = result["series_rebinds"][0]
+        guarded = p.revalidate_series_rebind(proposal, series_fresh(data))
+        self.assertEqual({key: guarded[key] for key in ("allowed", "calendar_call_allowed", "state_write_allowed")},
+                         {"allowed": False, "calendar_call_allowed": False, "state_write_allowed": True})
+        before = {m["marker"]: m for m in data["state"]["mappings"]}
+        for replacement in proposal["replacements"]:
+            baseline = before[replacement["marker"]]
+            self.assertEqual({k: v for k, v in replacement.items() if k != "verified_source"},
+                             {k: v for k, v in baseline.items() if k != "verified_source"})
+        ledger = deepcopy(data["managed_context"]["ledger"])
+        data["state"]["mappings"] = deepcopy(proposal["replacements"])
+        data["state"]["generation"] += "-state-only-adopted"
+        self.assertFalse(p.revalidate_series_rebind(proposal, series_fresh(data))["state_write_allowed"])
+        del data["series_transitions"]
+        self.assertEqual(p.plan(data)["counts"], result["counts"])
+        self.assertEqual(data["managed_context"]["ledger"], ledger)
+
+    def test_old_series_can_also_use_exhausted_bounded_pages_with_no_current_occurrences(self):
+        data = series_split_batch(13, bounded=True)
+        cert = data["series_transitions"][0]
+        current_window_instances(cert["old_instances"], data)
+        self.assertTrue(all(not page["response"]["events"] for page in cert["old_instances"]["pages"]))
+        self.assertEqual(p.plan(data)["status"], "series_rebind_ready")
+
+    def test_shared_creation_and_ordered_updates_are_required_with_fresh_guard(self):
+        for change in ("different_created", "reversed_updates", "old_relation", "new_created_equals_updated"):
+            data = series_split_batch(13, bounded=True)
+            cert = data["series_transitions"][0]
+            if change == "different_created":
+                cert["new_master"]["created"] = "2024-06-05T01:23:45Z"
+            elif change == "reversed_updates":
+                cert["new_master"]["updated"] = "2026-10-06T09:59:59Z"
+            elif change == "old_relation":
+                cert["review"]["timestamp_relation"] = "new_created_equals_updated"
+            else:
+                cert["new_master"]["created"] = cert["new_master"]["updated"]
+            self.blocked(data)
+        data = series_split_batch(13, bounded=True)
+        proposal = p.plan(data)["series_rebinds"][0]
+        data["series_transitions"][0]["new_master"]["updated"] = "2026-10-06T10:01:00Z"
+        self.assertEqual(p.plan(data)["status"], "series_rebind_ready")
+        self.assertFalse(p.revalidate_series_rebind(proposal, series_fresh(data))["state_write_allowed"])
+
+    def test_bounded_pages_require_exact_window_complete_chain_and_show_deleted(self):
+        for change in ("minimum", "maximum", "one_null", "both_null", "complete", "deleted", "unread", "token"):
+            data = series_split_batch(13, bounded=True)
+            collection = data["series_transitions"][0]["new_instances"]
+            if change == "minimum":
+                collection["time_min"] = "2026-10-06T12:00:01Z"
+            elif change == "maximum":
+                collection["time_max"] = "2027-01-04T12:00:01Z"
+            elif change == "one_null":
+                collection["time_min"] = None
+            elif change == "both_null":
+                collection["time_min"] = collection["time_max"] = None
+            elif change == "complete":
+                collection["complete"] = False
+            elif change == "deleted":
+                collection["show_deleted"] = False
+            elif change == "unread":
+                collection["pages"].pop()
+            else:
+                collection["pages"][1]["request_page_token"] = "unmatched-token"
+            with self.subTest(change=change):
+                self.blocked(data)
+
+    def test_bounded_missing_cancelled_duplicate_alias_and_future_rows_do_not_partially_rebind(self):
+        for change in ("missing", "cancelled", "duplicate", "alias", "outside_window"):
+            data = series_split_batch(13, bounded=True)
+            rows = data["series_transitions"][0]["new_instances"]["pages"][-1]["response"]["events"]
+            if change == "missing":
+                rows.pop()
+            elif change == "cancelled":
+                rows[-1]["status"] = "cancelled"
+            elif change in {"duplicate", "alias"}:
+                rows.append(deepcopy(rows[-1]))
+                if change == "alias":
+                    rows[-1]["event_id"] += "-different-id"
+            else:
+                extra = deepcopy(rows[-1])
+                extra["event_id"] += "-future"
+                for field in ("original_start_time", "start", "end"):
+                    extra[field] = (p.instant(extra[field]) + timedelta(days=7)).isoformat()
+                rows.append(extra)
+            self.blocked(data)
+
+    def test_bounded_old_truncation_must_end_at_the_week_before_the_split(self):
+        for rule in ("RRULE:FREQ=WEEKLY;BYDAY=TU", "RRULE:FREQ=WEEKLY;BYDAY=TU;UNTIL=20260929T125959Z",
+                     "RRULE:FREQ=WEEKLY;BYDAY=TU;UNTIL=20261006T130000Z"):
+            data = series_split_batch(13, bounded=True)
+            cert = data["series_transitions"][0]
+            current_window_instances(cert["old_instances"], data)
+            cert["old_master"]["recurrence"] = [rule]
+            self.blocked(data)
+
+    def test_bounded_ongoing_moved_exception_keeps_nominal_identity_and_current_mirror_time(self):
+        data = series_split_batch(13, bounded=True)
+        begin, end = "2026-10-06T11:30:00Z", "2026-10-06T12:30:00Z"
+        for value in (data["calendars"][0]["listing"]["events"][0], data["calendars"][1]["listing"]["events"][0],
+                      data["details"]["responses"][0]["event"], data["details"]["responses"][1]["event"],
+                      data["state"]["mappings"][0]["verified_source"], data["state"]["mappings"][0]["verified_destination"]):
+            value["start"]["dateTime"], value["end"]["dateTime"] = begin, end
+        cert = data["series_transitions"][0]
+        cert["new_instances"]["pages"][0]["response"]["events"][0].update(start=begin, end=end)
+        data = attach_series_certificate(data, cert)
+        result = p.plan(data)
+        self.assertEqual(result["status"], "series_rebind_ready", result)
+        self.assertEqual(writes(result), [])
+
+    def test_bounded_old_pages_cannot_omit_a_known_current_instance(self):
+        data = series_split_batch(13, bounded=True)
+        cert = data["series_transitions"][0]
+        current_window_instances(cert["old_instances"], data)
+        extra = event("synthetic-old-moved-into-window", "2026-10-08T18:00:00+09:00", "2026-10-08T19:00:00+09:00")
+        extra.update(recurring_event_id=cert["old_master"]["event_id"], original_start_time="2026-09-29T22:00:00+09:00")
+        extra = projection(batch([extra]))["calendars"][0]["listing"]["events"][0]
+        data["calendars"][0]["listing"]["events"].append(extra)
+        result = self.blocked(data)
+        self.assertEqual(result["actions"][0]["reason"], "series_page_omits_known_instance_in_scope")
 
     def test_reviewed_thirteen_instance_split_only_rebinds_verified_source_baselines(self):
         data = series_split_batch(13)
@@ -2464,7 +2606,7 @@ class SeriesTransitionTests(unittest.TestCase):
             elif path == "audit_hash":
                 cert["review"]["evidence_sha256"] = "bad"
             else:
-                cert["new_master"]["updated"] = "2026-10-06T10:02:00Z"
+                cert["new_master"]["created"] = "2024-06-05T01:23:45Z"
             with self.subTest(path=path):
                 self.blocked(data)
 

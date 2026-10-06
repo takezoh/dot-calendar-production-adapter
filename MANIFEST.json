@@ -3,20 +3,20 @@
   "raw_schema_version": 2,
   "planner_release": "1.4.0",
   "planner_schema_version": 3,
-  "pinned_planner_sha256": "c44f02c12686407ba92342fc8465d29bc2e936c0d91eed319324e8884acde42d",
+  "pinned_planner_sha256": "88927aa5188261314c04e9764d93c2f1c8c6e79b5fd98ab89d8907886e04438d",
   "config_version": 1,
   "managed_ledger_version": 2,
-  "tests_passed": 309,
+  "tests_passed": 318,
   "files": [
     {
       "path": "production_adapter.py",
       "bytes": 27854,
-      "sha256": "222904f57359496f8075d571cbdda00bcbbe87b6e17ee05818af6a2310d3aa91"
+      "sha256": "f97889cb1b41665cac330492d94ecaec3c316a0ffbf0a842dc3bb5ab1a82a78a"
     },
     {
       "path": "test_production_adapter.py",
-      "bytes": 45810,
-      "sha256": "1cdf39ba5a738776f522553e57ede955c7636e6b74031d64ca360c27992a3ddc"
+      "bytes": 46964,
+      "sha256": "b9c36eaceca1695e5e232a9662b6cf022f1ff2194a6e86b3b010647f4159ec64"
     },
     {
       "path": "ADAPTER_CONTRACT.md",
@@ -25,13 +25,13 @@
     },
     {
       "path": "planner.py",
-      "bytes": 107593,
-      "sha256": "c44f02c12686407ba92342fc8465d29bc2e936c0d91eed319324e8884acde42d"
+      "bytes": 109265,
+      "sha256": "88927aa5188261314c04e9764d93c2f1c8c6e79b5fd98ab89d8907886e04438d"
     },
     {
       "path": "test_planner.py",
-      "bytes": 151034,
-      "sha256": "b4154507766dd36823b1f6d4be58b38c68b4f2bf21c028291d10a6adf77b5e44"
+      "bytes": 159809,
+      "sha256": "46e9e0a09d01c65d3412b96d06ff1b513905a900eff7b90fc06f2a871fa7b29d"
     },
     {
       "path": "MANAGED_COVERAGE.md",
@@ -65,13 +65,13 @@
     },
     {
       "path": "build_adapter_release.py",
-      "bytes": 6775,
-      "sha256": "d25af11acc38618c890c7bb5102caeb5b0a244c1df53fd98c8148689784fd289"
+      "bytes": 6791,
+      "sha256": "085f29f8a4eece36042c7919d3fedde9620e086690ff746e05b9289c1acce40a"
     },
     {
       "path": "TEST_RESULTS.txt",
-      "bytes": 31029,
-      "sha256": "3265139f6b39070c4db8fdce1643287fd6cd85e2168f357da2f408bd1114fc23"
+      "bytes": 32104,
+      "sha256": "eb60f00664454bfbb302eabd69e7d36ef6ab4450832135d8fa0fde8c4671cc4f"
     },
     {
       "path": "RECOVERY_CONTRACT.md",
@@ -80,13 +80,13 @@
     },
     {
       "path": "SERIES_TRANSITION_CONTRACT.md",
-      "bytes": 12250,
-      "sha256": "bea1cd1e6eea0e0fea9819d56d3d7b93ad35386f5bb78a120cb233d71e18a32a"
+      "bytes": 14145,
+      "sha256": "b902c3483d3db578c15cc53d182b68bca5994fd6d8ad358a1e2a572ad0e8230d"
     },
     {
       "path": "README.md",
-      "bytes": 5932,
-      "sha256": "eea9c53b6662f1e52b195bb94c1c2b0fbe0a8ab68d80d027c5fa2cf407d1904e"
+      "bytes": 6005,
+      "sha256": "17a75094356eb870c8482fea4da2696825424781b178d38a26dcaee89c399a54"
     },
     {
       "path": "verify_release.py",
@@ -215,18 +215,18 @@
     },
     {
       "path": "examples/series-split.raw.json",
-      "bytes": 36199,
-      "sha256": "0a380c257ea10e33fb045efe675ca8cd52139f60ae0811b59fc6e6f28ea1e4b4"
+      "bytes": 130841,
+      "sha256": "5cd80cb3099d5c747a1a2b1fb9ce40f9f732186a8c508e3226c4c2781459d501"
     },
     {
       "path": "examples/series-split.normalized.json",
-      "bytes": 39085,
-      "sha256": "7bc51c382f6636a786541b5fa86ec0bbf406378521a3002b95a8d85adff409c3"
+      "bytes": 144715,
+      "sha256": "7b1a2b14557618dd84d978c80a8195447403259300dab2c9dedea8ebb33be2fb"
     },
     {
       "path": "examples/series-split.plan.json",
-      "bytes": 49661,
-      "sha256": "8a14b3a654c5fd59c97c4a82c7a4ba76ed96804b8a879727a89e5f52a317c102"
+      "bytes": 215786,
+      "sha256": "461c11d7eb51074d792682377436da294b8b37e323dfe8c76b2bd5517120e60b"
     },
     {
       "path": "examples/managed-revalidate.input.json",
@@ -235,8 +235,8 @@
     },
     {
       "path": "examples/series-revalidate.input.json",
-      "bytes": 56396,
-      "sha256": "77f7cae14c7d00a682c4ca1c5bdb7c76db9b88dc34bf77b81f62c8176a976b0a"
+      "bytes": 211084,
+      "sha256": "967b7182a00127627671a17d24dc7b38e2a34a7c634d5e20d05b5156b3d4f8ae"
     },
     {
       "path": "examples/recovery-preflight.input.json",

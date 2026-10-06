@@ -63,7 +63,7 @@ def main():
     datasets["recovery"] = recovery_raw
     refreshed_raw, _ = fixtures.RecoveryAdapterTests().raw_supersession()
     datasets["recovery-refresh"] = refreshed_raw
-    series_raw, series_normalized = fixtures.series_split_raw()
+    series_raw, series_normalized = fixtures.series_split_raw(13, bounded=True)
     datasets["series-split"] = series_raw
     names = ["production_adapter.py", "test_production_adapter.py", "ADAPTER_CONTRACT.md", "planner.py",
              "test_planner.py", "MANAGED_COVERAGE.md", "PLANNER_CONTRACT.md", "RUNTIME_CONFIG.md", "config.example.json",
